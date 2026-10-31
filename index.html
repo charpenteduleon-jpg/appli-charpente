@@ -277,14 +277,15 @@
 
     <h3 class="titre-section">Connexion au serveur Google</h3>
     <div class="carte">
-      <div class="champ"><label for="reglage-url">Adresse du serveur</label>
-        <input id="reglage-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
-      <div class="champ"><label for="reglage-code">Code secret</label>
-        <input id="reglage-code" type="password" autocomplete="off"></div>
+      <div class="champ"><label for="reglage-url">Adresse du serveur (déjà remplie)</label>
+        <input id="reglage-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <div class="champ"><label for="reglage-code">Code secret (12 caractères)</label>
+        <input id="reglage-code" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="40"></div>
       <div class="deux-boutons">
         <button id="btn-tester" class="btn secondaire">Tester</button>
         <button id="btn-enregistrer-reglages" class="btn principal">Enregistrer</button>
       </div>
+      <p id="reglage-diagnostic" class="discret"></p>
     </div>
 
     <h3 class="titre-section">Autorisations de l'iPhone</h3>
@@ -312,7 +313,7 @@
         </li>
         <li id="etape-serveur">
           <span class="num">2</span>
-          <div><strong>Se connecter au serveur</strong><p>Adresse et code secret du guide d'installation.</p>
+          <div><strong>Se connecter au serveur</strong><p>Tape seulement le code secret (12 caractères) : l'adresse est déjà remplie.</p>
             <button class="btn-petit" data-ouvre="reglages">Ouvrir les réglages</button></div>
           <span class="coche"></span>
         </li>

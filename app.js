@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -24,9 +24,26 @@ function lireJson(cle, defaut) {
 }
 const ecrireJson = (cle, v) => ecrire(cle, JSON.stringify(v));
 
+// L'adresse du serveur n'est pas secrète (rien ne passe sans le code), donc elle est déjà remplie.
+const URL_SERVEUR = 'https://script.google.com/macros/s/AKfycbyKMQw7wS_GB3t2WpaudSEm9tP9LGqs0yrj1bQD5uyOVOVMXc9Ebhz2IgoEWHJsXpCD/exec';
+
+// Retrouve l'adresse du serveur dans un texte collé (lien réécrit par Gmail, espaces, retour à la ligne…).
+function nettoyerUrl(texte) {
+  let t = String(texte || '').replace(/\s+/g, '');
+  try { t = decodeURIComponent(t); } catch { /* texte non encodé */ }
+  const m = t.match(/https:\/\/script\.google\.com\/macros\/(?:u\/\d+\/)?s\/([\w-]+)\/exec/);
+  return m ? `https://script.google.com/macros/s/${m[1]}/exec` : '';
+}
+
+// Le code fait 12 caractères 0-9 A-F : on enlève espaces, minuscules et texte collé autour.
+function nettoyerCode(texte) {
+  const t = String(texte || '').replace(/\s+/g, '').toUpperCase();
+  return (t.match(/[0-9A-F]{12}/) || [t])[0];
+}
+
 const reglages = {
-  get url() { return lire('reglage-url') || ''; },
-  get code() { return lire('reglage-code') || ''; },
+  get url() { return nettoyerUrl(lire('reglage-url')) || URL_SERVEUR; },
+  get code() { return nettoyerCode(lire('reglage-code')); },
   ok() { return this.url.startsWith('https://') && this.code.length > 0; },
 };
 
@@ -137,6 +154,8 @@ async function appelServeur(donnees) {
     return json;
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('Le serveur met trop de temps à répondre');
+    // Safari dit seulement « Load failed » quand il n'arrive pas à joindre le serveur
+    if (e instanceof TypeError) throw new Error(`Serveur injoignable (${e.message})`);
     throw e;
   } finally {
     clearTimeout(minuteur);
@@ -962,21 +981,39 @@ function ouvrirReglages() {
 }
 
 function enregistrerReglages() {
-  ecrire('reglage-url', $('#reglage-url').value.trim());
-  ecrire('reglage-code', $('#reglage-code').value.trim());
+  ecrire('reglage-url', nettoyerUrl($('#reglage-url').value));
+  ecrire('reglage-code', nettoyerCode($('#reglage-code').value));
+  $('#reglage-url').value = reglages.url;
+  $('#reglage-code').value = reglages.code;
+}
+
+// Après un échec : le serveur répond-il à une simple lecture ? Sépare « réseau / adresse » de « envoi bloqué ».
+async function diagnosticServeur() {
+  if (!navigator.onLine) return 'L\'iPhone est hors ligne.';
+  try {
+    const r = await fetch(reglages.url);
+    const j = await r.json();
+    return j.ok ? 'Le serveur répond en lecture, seul l\'envoi échoue.' : `Lecture : erreur ${r.status}.`;
+  } catch (e) {
+    return `Lecture impossible aussi (${e.message}).`;
+  }
 }
 
 async function testerConnexion() {
   enregistrerReglages();
   const b = $('#btn-tester');
+  const diag = $('#reglage-diagnostic');
   b.textContent = 'Test…';
+  diag.textContent = '';
   try {
     const res = await appelServeur({ action: 'ping' });
     toast(`Connexion OK ✅ ${res.compte || ''}`, 'ok');
+    diag.textContent = `Connexion OK · ${res.compte || ''} · serveur ${res.version || '?'} · appli ${VERSION}`;
     viderFile();
     rafraichirChantiers();
   } catch (e) {
     toast(`Échec : ${e.message}`, 'erreur');
+    diag.textContent = `❌ ${e.message} ${await diagnosticServeur()} · appli ${VERSION}`;
   } finally {
     b.textContent = 'Tester';
   }
