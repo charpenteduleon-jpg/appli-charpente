@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1c4587"/>
+  <!-- Ferme de charpente -->
+  <g fill="none" stroke="#ffffff" stroke-width="26" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M96 352 L256 150 L416 352 Z"/>
+    <path d="M256 150 L256 352"/>
+    <path d="M176 251 L256 352 L336 251"/>
+  </g>
+  <rect x="80" y="352" width="352" height="30" rx="10" fill="#e67e22"/>
+</svg>

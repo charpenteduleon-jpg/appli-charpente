@@ -1,0 +1,16 @@
+{
+  "name": "Charpente du Léon",
+  "short_name": "Charpente",
+  "description": "Factures, pleins, photos de chantier et notes de la SARL Charpente du Léon",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#1c4587",
+  "icons": [
+    { "src": "icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icone-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icone-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

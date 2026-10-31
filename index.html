@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Charpente du Léon</title>
+  <meta name="theme-color" content="#1c4587">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Charpente">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icone.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icone-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===================== AUJOURD'HUI ===================== -->
+  <main id="ecran-accueil" class="ecran onglet" data-onglet="accueil">
+    <header class="titre-page">
+      <p id="accueil-date" class="sur-titre"></p>
+      <h1 id="accueil-bonjour">Bonjour</h1>
+      <p id="etat" class="etat"></p>
+    </header>
+
+    <div id="bandeau-installer" class="bandeau cache">
+      <div>
+        <strong>Installe l'appli sur ton iPhone</strong>
+        <p>Touche <span class="ico-partage">⬆︎</span> Partager en bas de Safari, puis <b>« Sur l'écran d'accueil »</b>.</p>
+      </div>
+      <button class="fermer" data-ferme="bandeau-installer" aria-label="Fermer">×</button>
+    </div>
+
+    <div id="bandeau-maj" class="bandeau info cache">
+      <div><strong>Nouvelle version disponible</strong><p>Les dernières améliorations sont prêtes.</p></div>
+      <button id="btn-maj" class="btn-petit">Mettre à jour</button>
+    </div>
+
+    <button id="btn-deposer" class="deposer">
+      <span class="deposer-ico">📄</span>
+      <span class="deposer-texte">
+        <span class="titre">Déposer un document</span>
+        <span class="sous-titre">Facture, ticket, bon de livraison, plan… je le classe tout seul</span>
+      </span>
+      <span class="chevron">›</span>
+    </button>
+
+    <div class="actions-rapides">
+      <button class="action" data-ouvre="chantier"><span>🏗️</span>Photo<br>chantier</button>
+      <button class="action" data-ouvre="note"><span>🎙️</span>Note<br>rapide</button>
+      <button class="action" data-ouvre="claude"><span>💬</span>Demander<br>à Claude</button>
+      <button class="action" data-ouvre="point"><span>📋</span>Point<br>du jour</button>
+    </div>
+
+    <section id="carte-meteo" class="carte carte-meteo">
+      <div class="carte-entete"><h2>Météo ici</h2><span id="meteo-lieu" class="discret"></span></div>
+      <div id="meteo-contenu" class="squelette" style="height:84px"></div>
+    </section>
+
+    <section id="carte-agenda" class="carte">
+      <div class="carte-entete"><h2>Prochains rendez-vous</h2></div>
+      <ul id="agenda-liste" class="liste-simple"><li class="squelette" style="height:40px"></li></ul>
+    </section>
+
+    <section id="carte-taches" class="carte">
+      <div class="carte-entete"><h2>À faire</h2><button class="lien" data-onglet-vers="taches">Tout voir</button></div>
+      <ul id="accueil-taches" class="liste-simple"></ul>
+    </section>
+
+    <section id="envois" class="carte cache">
+      <div class="carte-entete"><h2>Envois</h2></div>
+      <div id="progression" class="progression cache"><div id="progression-barre"></div></div>
+      <p id="file-attente-texte" class="discret"></p>
+      <ul id="derniers-liste" class="liste-simple"></ul>
+      <button id="btn-renvoyer" class="btn secondaire cache">Réessayer maintenant</button>
+    </section>
+  </main>
+
+  <!-- ===================== CHANTIERS ===================== -->
+  <section id="ecran-chantiers" class="ecran onglet cache" data-onglet="chantiers">
+    <header class="titre-page"><h1>Chantiers</h1></header>
+    <div class="recherche">
+      <input id="chantiers-recherche" type="search" placeholder="Chercher un chantier ou un client" autocomplete="off">
+    </div>
+    <div id="filtres-statut" class="puces defilant">
+      <button class="puce active" data-statut="">Tous</button>
+      <button class="puce" data-statut="En cours">En cours</button>
+      <button class="puce" data-statut="À venir">À venir</button>
+      <button class="puce" data-statut="Terminé">Terminés</button>
+      <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
+    </div>
+    <ul id="chantiers-liste" class="liste-cartes"></ul>
+  </section>
+
+  <!-- ===================== FICHE CHANTIER ===================== -->
+  <section id="ecran-fiche" class="ecran cache" data-onglet="chantiers">
+    <button class="retour" data-retour-vers="chantiers">‹ Chantiers</button>
+    <header class="titre-page compact">
+      <h1 id="fiche-titre"></h1>
+      <p id="fiche-sous-titre" class="discret"></p>
+    </header>
+
+    <div class="boutons-fiche">
+      <a id="fiche-appeler" class="bouton-rond cache"><span>📞</span>Appeler</a>
+      <a id="fiche-itineraire" class="bouton-rond cache" target="_blank" rel="noopener"><span>🧭</span>Itinéraire</a>
+      <button id="fiche-photo" class="bouton-rond"><span>📷</span>Photos</button>
+      <button id="fiche-note" class="bouton-rond"><span>🎙️</span>Note</button>
+      <a id="fiche-drive" class="bouton-rond" target="_blank" rel="noopener"><span>📁</span>Dossier</a>
+    </div>
+
+    <div id="fiche-statut" class="segment"></div>
+
+    <details id="fiche-infos" class="carte depliant">
+      <summary>Infos du chantier</summary>
+      <div class="champ"><label for="fiche-client">Client</label><input id="fiche-client" type="text" autocomplete="off"></div>
+      <div class="champ"><label for="fiche-tel">Téléphone</label><input id="fiche-tel" type="tel" autocomplete="off"></div>
+      <div class="champ"><label for="fiche-adresse">Adresse</label><input id="fiche-adresse" type="text" autocomplete="off"></div>
+      <button id="fiche-enregistrer" class="btn principal">Enregistrer</button>
+    </details>
+
+    <div id="fiche-contenu"></div>
+  </section>
+
+  <!-- ===================== À FAIRE ===================== -->
+  <section id="ecran-taches" class="ecran onglet cache" data-onglet="taches">
+    <header class="titre-page"><h1>À faire</h1></header>
+    <div class="ajout-tache">
+      <input id="tache-nouvelle" type="text" placeholder="Ajouter une chose à faire…" autocomplete="off" enterkeyhint="done">
+      <button id="btn-ajouter-tache" class="btn-rond" aria-label="Ajouter">＋</button>
+    </div>
+    <ul id="taches-liste" class="liste-taches"></ul>
+  </section>
+
+  <!-- ===================== PLUS ===================== -->
+  <section id="ecran-plus" class="ecran onglet cache" data-onglet="plus">
+    <header class="titre-page"><h1>Plus</h1></header>
+    <ul class="menu">
+      <li><button data-ouvre="point"><span>📋</span>Point du jour<i>›</i></button></li>
+      <li><button data-ouvre="claude"><span>💬</span>Demander à Claude<i>›</i></button></li>
+      <li><button data-ouvre="note"><span>🎙️</span>Nouvelle note<i>›</i></button></li>
+      <li><button data-ouvre="chantier"><span>🏗️</span>Photo de chantier<i>›</i></button></li>
+      <li><button data-ouvre="calculs"><span>📐</span>Calculs de charpente<i>›</i></button></li>
+    </ul>
+    <ul class="menu">
+      <li><button data-ouvre="reglages"><span>⚙️</span>Réglages et autorisations<i>›</i></button></li>
+      <li><button data-ouvre="bienvenue"><span>👋</span>Revoir la présentation<i>›</i></button></li>
+    </ul>
+    <p id="version" class="discret centre"></p>
+  </section>
+
+  <!-- ===================== DOCUMENT / PHOTOS ===================== -->
+  <section id="ecran-document" class="ecran plein cache">
+    <div class="barre-haut">
+      <button class="retour" data-annuler>Annuler</button>
+      <strong id="doc-titre">Nouveau document</strong>
+      <span></span>
+    </div>
+
+    <div id="pages" class="pages"></div>
+    <div class="deux-boutons">
+      <button id="btn-ajouter-page" class="btn secondaire">📷 Prendre en photo</button>
+      <button id="btn-galerie" class="btn secondaire">🖼️ Photos / fichiers</button>
+    </div>
+
+    <div id="bloc-scan" class="ligne-option">
+      <div><strong>Mode scan</strong><p class="discret">Noir et blanc contrasté, comme un scanner</p></div>
+      <label class="interrupteur"><input id="mode-scan" type="checkbox" checked><span></span></label>
+    </div>
+
+    <div id="bloc-tampon" class="ligne-option cache">
+      <div><strong>Tampon date et chantier</strong><p class="discret">Incrusté sur la photo, utile en cas de litige</p></div>
+      <label class="interrupteur"><input id="tampon" type="checkbox" checked><span></span></label>
+    </div>
+
+    <div id="bloc-type" class="bloc">
+      <p class="etiquette">C'est quoi ? <span class="discret">(facultatif)</span></p>
+      <div id="types-doc" class="puces">
+        <button class="puce" data-type="Facture">🧾 Facture</button>
+        <button class="puce" data-type="Ticket">🎫 Ticket</button>
+        <button class="puce" data-type="Bon de livraison">🚚 Bon de livraison</button>
+        <button class="puce" data-type="Plan">📐 Plan</button>
+        <button class="puce" data-type="Devis / contrat">📝 Devis / contrat</button>
+        <button class="puce" data-type="Courrier">✉️ Courrier</button>
+      </div>
+    </div>
+
+    <div class="bloc">
+      <p class="etiquette">Chantier <span id="chantier-facultatif" class="discret">(facultatif)</span></p>
+      <p id="gps-etat" class="gps"></p>
+      <select id="chantier-select"></select>
+      <input id="chantier-libre" type="text" placeholder="Ou le nom d'un nouveau chantier" autocomplete="off">
+    </div>
+
+    <div class="bloc">
+      <p class="etiquette">Précision <span class="discret">(facultatif)</span></p>
+      <input id="doc-note" type="text" placeholder="ex. plein du Mercedes, 128 450 km" autocomplete="off">
+    </div>
+
+    <div class="pied-fixe">
+      <button id="btn-envoyer-doc" class="btn principal" disabled>Ajouter</button>
+    </div>
+  </section>
+
+  <!-- ===================== NOTE ===================== -->
+  <section id="ecran-note" class="ecran plein cache">
+    <div class="barre-haut">
+      <button class="retour" data-annuler>Annuler</button>
+      <strong>Note</strong>
+      <button id="btn-envoyer-note" class="lien gras">Enregistrer</button>
+    </div>
+    <textarea id="note-texte" rows="7" placeholder="Touche 🎤 sur le clavier pour dicter…"></textarea>
+    <div id="types-note" class="puces">
+      <button class="puce active" data-type="À faire">✅ À faire</button>
+      <button class="puce" data-type="Idée">💡 Idée</button>
+      <button class="puce" data-type="Info">ℹ️ Info</button>
+    </div>
+    <div class="bloc">
+      <p class="etiquette">Chantier <span class="discret">(facultatif)</span></p>
+      <select id="note-chantier"></select>
+    </div>
+  </section>
+
+  <!-- ===================== POINT DU JOUR ===================== -->
+  <section id="ecran-point" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Point du jour</h1><p id="point-date" class="discret"></p></header>
+    <div id="point-contenu" class="carte point"></div>
+    <button id="btn-actualiser-point" class="btn secondaire">Actualiser</button>
+  </section>
+
+  <!-- ===================== CLAUDE ===================== -->
+  <section id="ecran-claude" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Demander à Claude</h1>
+      <p class="discret">Ta question s'ouvre dans l'appli Claude, qui voit ta boîte mail, ton Drive et ton agenda.</p></header>
+    <textarea id="claude-texte" rows="5" placeholder="ex. Classe le document que je viens de déposer"></textarea>
+    <div class="puces">
+      <button class="puce" data-question="Regarde le dernier document que j'ai déposé dans le dossier Drive « 📸 Factures à saisir » et dis-moi ce que c'est.">Mon dernier dépôt</button>
+      <button class="puce" data-question="Fais-moi le point de ma boîte mail pro : ce qui est urgent aujourd'hui.">Point mails</button>
+      <button class="puce" data-question="Qu'est-ce que j'ai à l'agenda aujourd'hui et demain ?">Mon agenda</button>
+      <button class="puce" data-question="Quels devis et factures clients sont en attente dans ProGBat ?">Devis et factures</button>
+    </div>
+    <button id="btn-ouvrir-claude" class="btn principal">Ouvrir dans Claude</button>
+  </section>
+
+  <!-- ===================== CALCULS DE CHARPENTE ===================== -->
+  <section id="ecran-calculs" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Calculs</h1><p class="discret">Marche sans réseau.</p></header>
+
+    <section class="carte">
+      <h2>Pente</h2>
+      <div class="deux-champs">
+        <div class="champ"><label for="calc-pct">En %</label><input id="calc-pct" type="text" inputmode="decimal" placeholder="ex. 100"></div>
+        <div class="champ"><label for="calc-deg">En degrés</label><input id="calc-deg" type="text" inputmode="decimal" placeholder="ex. 45"></div>
+      </div>
+    </section>
+
+    <section class="carte">
+      <h2>Rampant et couverture</h2>
+      <div class="deux-champs">
+        <div class="champ"><label for="calc-portee">Portée totale (m)</label><input id="calc-portee" type="text" inputmode="decimal" placeholder="ex. 8,40"></div>
+        <div class="champ"><label for="calc-pente">Pente (°)</label><input id="calc-pente" type="text" inputmode="decimal" placeholder="ex. 40"></div>
+        <div class="champ"><label for="calc-debord">Débord (m)</label><input id="calc-debord" type="text" inputmode="decimal" placeholder="ex. 0,40"></div>
+        <div class="champ"><label for="calc-long">Long. faîtage (m)</label><input id="calc-long" type="text" inputmode="decimal" placeholder="ex. 12"></div>
+      </div>
+      <ul id="calc-resultats" class="resultats"></ul>
+    </section>
+  </section>
+
+  <!-- ===================== RÉGLAGES ===================== -->
+  <section id="ecran-reglages" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Réglages</h1></header>
+
+    <h3 class="titre-section">Connexion au serveur Google</h3>
+    <div class="carte">
+      <div class="champ"><label for="reglage-url">Adresse du serveur</label>
+        <input id="reglage-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></div>
+      <div class="champ"><label for="reglage-code">Code secret</label>
+        <input id="reglage-code" type="password" autocomplete="off"></div>
+      <div class="deux-boutons">
+        <button id="btn-tester" class="btn secondaire">Tester</button>
+        <button id="btn-enregistrer-reglages" class="btn principal">Enregistrer</button>
+      </div>
+    </div>
+
+    <h3 class="titre-section">Autorisations de l'iPhone</h3>
+    <ul id="autorisations" class="menu"></ul>
+    <p class="discret petit">Si une autorisation a été refusée : Réglages de l'iPhone → Confidentialité et sécurité → Service de localisation (ou Notifications) → Charpente.</p>
+
+    <h3 class="titre-section">Données sur le téléphone</h3>
+    <ul class="menu">
+      <li><button id="btn-vider"><span>🧹</span>Effacer les données en cache<i>›</i></button></li>
+    </ul>
+  </section>
+
+  <!-- ===================== BIENVENUE ===================== -->
+  <section id="ecran-bienvenue" class="ecran plein cache">
+    <div class="bienvenue">
+      <img src="icone-512.png" alt="" class="logo">
+      <h1>Charpente du Léon</h1>
+      <p class="discret">Ton assistant de poche : documents, chantiers, notes et point du jour.</p>
+
+      <ol class="etapes">
+        <li id="etape-installer">
+          <span class="num">1</span>
+          <div><strong>Installer l'appli</strong><p>Dans Safari : Partager ⬆︎ → « Sur l'écran d'accueil », puis ouvre-la depuis l'icône.</p></div>
+          <span class="coche"></span>
+        </li>
+        <li id="etape-serveur">
+          <span class="num">2</span>
+          <div><strong>Se connecter au serveur</strong><p>Adresse et code secret du guide d'installation.</p>
+            <button class="btn-petit" data-ouvre="reglages">Ouvrir les réglages</button></div>
+          <span class="coche"></span>
+        </li>
+        <li id="etape-position">
+          <span class="num">3</span>
+          <div><strong>Autoriser la position</strong><p>Pour reconnaître le chantier sur tes photos et la météo locale.</p>
+            <button class="btn-petit" data-autoriser="position">Autoriser</button></div>
+          <span class="coche"></span>
+        </li>
+        <li id="etape-notifications">
+          <span class="num">4</span>
+          <div><strong>Autoriser les notifications</strong><p>Pour la pastille rouge du nombre de choses à faire sur l'icône.</p>
+            <button class="btn-petit" data-autoriser="notifications">Autoriser</button></div>
+          <span class="coche"></span>
+        </li>
+        <li id="etape-camera">
+          <span class="num">5</span>
+          <div><strong>Appareil photo</strong><p>L'iPhone le demandera au premier document déposé : réponds « Autoriser ».</p></div>
+          <span class="coche"></span>
+        </li>
+      </ol>
+      <button id="btn-commencer" class="btn principal">C'est parti</button>
+    </div>
+  </section>
+
+  <!-- ===================== BARRE D'ONGLETS ===================== -->
+  <nav id="barre-onglets" class="barre-onglets" aria-label="Navigation">
+    <button data-onglet-vers="accueil" class="active">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>
+      <span>Aujourd'hui</span>
+    </button>
+    <button data-onglet-vers="chantiers">
+      <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+      <span>Chantiers</span>
+    </button>
+    <button id="onglet-deposer" class="onglet-central" aria-label="Déposer un document">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button data-onglet-vers="taches">
+      <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>
+      <span>À faire</span><b id="pastille-taches" class="pastille cache"></b>
+    </button>
+    <button data-onglet-vers="plus">
+      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+      <span>Plus</span>
+    </button>
+  </nav>
+
+  <!-- Appareil photo et galerie (cachés, déclenchés par les boutons) -->
+  <input id="photo-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="galerie-input" class="cache" type="file" accept="image/*,application/pdf" multiple>
+
+  <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
