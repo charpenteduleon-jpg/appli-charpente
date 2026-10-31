@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.2.1';
+const VERSION = '1.3.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -751,12 +751,19 @@ function dessinerFiche(f) {
     if (r.vignettes?.length) {
       bloc.append(el('div', { class: 'vignettes' }, ...r.vignettes.map((v) =>
         el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })))));
+      if (r.total > r.vignettes.length) bloc.append(lienDossier(r));
     } else if (r.fichiers.length) {
-      for (const fi of r.fichiers.slice(0, 8)) {
-        bloc.append(el('a', { class: 'fichier', href: fi.url, target: '_blank', rel: 'noopener' },
-          el('span', {}, fi.type === 'application/pdf' ? '📄' : fi.type?.startsWith('image/') ? '🖼️' : '📎'), el('span', {}, fi.nom)));
+      const NB_VISIBLES = 6;
+      r.fichiers.slice(0, NB_VISIBLES).forEach((fi) => bloc.append(lienFichier(fi)));
+      const suite = r.fichiers.slice(NB_VISIBLES);
+      if (suite.length) {
+        const bouton = el('button', { class: 'fichier tout-voir' }, el('span', {}, '▾'), el('span', {}, `Tout voir (${r.total})`));
+        bouton.onclick = () => {
+          bouton.replaceWith(...suite.map(lienFichier));
+          if (r.total > r.fichiers.length) bloc.append(lienDossier(r));
+        };
+        bloc.append(bouton);
       }
-      if (r.total > 8) bloc.append(el('a', { class: 'fichier', href: r.url, target: '_blank', rel: 'noopener' }, el('span', {}, '…'), el('span', {}, `Voir les ${r.total}`)));
     } else {
       bloc.append(el('p', { class: 'discret' }, titre === 'Photos' ? 'Pas encore de photo : touche 📷 Photos.' : 'Rien pour l\'instant.'));
     }
@@ -772,6 +779,18 @@ function dessinerFiche(f) {
   blocs.push(notes);
   $('#fiche-contenu').replaceChildren(...blocs);
 }
+
+// Un document du dossier chantier : nom sans la date du mail (affichée à part), ouvert dans Drive.
+function lienFichier(fi) {
+  const icone = fi.type === 'application/pdf' ? '📄' : fi.type?.startsWith('image/') ? '🖼️' : '📎';
+  const nom = fi.nom.replace(/^\d{4}-\d{2}-\d{2}[ _]/, '');
+  const date = new Date(fi.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  return el('a', { class: 'fichier', href: fi.url, target: '_blank', rel: 'noopener' },
+    el('span', {}, icone), el('span', { class: 'fichier-texte' }, el('span', {}, nom), el('small', {}, date)));
+}
+
+const lienDossier = (r) => el('a', { class: 'fichier', href: r.url, target: '_blank', rel: 'noopener' },
+  el('span', {}, '📁'), el('span', {}, `Ouvrir le dossier (${r.total})`));
 
 async function changerStatut(statut) {
   if (!ficheCourante?.nom) return;

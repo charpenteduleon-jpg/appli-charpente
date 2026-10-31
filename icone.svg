@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#1c4587"/>
-  <!-- Ferme de charpente -->
-  <g fill="none" stroke="#ffffff" stroke-width="26" stroke-linejoin="round" stroke-linecap="round">
-    <path d="M96 352 L256 150 L416 352 Z"/>
-    <path d="M256 150 L256 352"/>
-    <path d="M176 251 L256 352 L336 251"/>
-  </g>
-  <rect x="80" y="352" width="352" height="30" rx="10" fill="#e67e22"/>
+  <defs>
+    <linearGradient id="or" x1="108.903" y1="26.7939" x2="391.086" y2="168.035" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2BD95"/><stop offset="1" stop-color="#A88867"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#23376D"/>
+  <path transform="translate(-34.3 142.88) scale(1.1612)" fill="url(#or)" d="M391.086 168.035H356.417L294.764 106.953L312.376 89.8926L391.086 168.035ZM285.466 62.4072L285.634 62.5762H319.642L241.091 141.696L240.116 142.679H294.281L319.913 168.035H180.646L267.265 80.8467L267.664 80.4463L267.27 80.04L249.982 62.1758L249.574 61.7529L249.16 62.1699L143.87 168.035H108.903L177.941 98.7119L178.109 98.543V62.5762H202.889V73.1758L203.871 72.207L249.853 26.7939L285.466 62.4072Z"/>
 </svg>

@@ -1,7 +1,8 @@
 // Service worker : garde l'appli disponible même sans réseau.
 // Changer CACHE à chaque nouvelle version pour que l'iPhone récupère les fichiers à jour.
-const CACHE = 'charpente-v1.2.1';
-const FICHIERS = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icone.svg', 'icone-180.png', 'icone-512.png'];
+const CACHE = 'charpente-v1.3.0';
+const FICHIERS = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icone.svg', 'icone-180.png', 'icone-512.png',
+  'logo.svg', 'logo-blanc.svg'];
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(FICHIERS)).then(() => self.skipWaiting()));

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Charpente du Léon</title>
-  <meta name="theme-color" content="#1c4587">
+  <meta name="theme-color" content="#23376d">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -19,10 +19,16 @@
 
   <!-- ===================== AUJOURD'HUI ===================== -->
   <main id="ecran-accueil" class="ecran onglet" data-onglet="accueil">
-    <header class="titre-page">
-      <p id="accueil-date" class="sur-titre"></p>
-      <h1 id="accueil-bonjour">Bonjour</h1>
-      <p id="etat" class="etat"></p>
+    <header class="titre-page avec-logo">
+      <div>
+        <p id="accueil-date" class="sur-titre"></p>
+        <h1 id="accueil-bonjour">Bonjour</h1>
+        <p id="etat" class="etat"></p>
+      </div>
+      <picture class="logo-entete">
+        <source srcset="logo-blanc.svg" media="(prefers-color-scheme: dark)">
+        <img src="logo.svg" alt="Charpente du Léon" width="104" height="70">
+      </picture>
     </header>
 
     <div id="bandeau-installer" class="bandeau cache">
@@ -147,6 +153,10 @@
       <li><button data-ouvre="reglages"><span>⚙️</span>Réglages et autorisations<i>›</i></button></li>
       <li><button data-ouvre="bienvenue"><span>👋</span>Revoir la présentation<i>›</i></button></li>
     </ul>
+    <picture class="logo-bas">
+      <source srcset="logo-blanc.svg" media="(prefers-color-scheme: dark)">
+      <img src="logo.svg" alt="Charpente du Léon" width="150" height="101">
+    </picture>
     <p id="version" class="discret centre"></p>
   </section>
 
@@ -301,8 +311,11 @@
   <!-- ===================== BIENVENUE ===================== -->
   <section id="ecran-bienvenue" class="ecran plein cache">
     <div class="bienvenue">
-      <img src="icone-512.png" alt="" class="logo">
-      <h1>Charpente du Léon</h1>
+      <picture>
+        <source srcset="logo-blanc.svg" media="(prefers-color-scheme: dark)">
+        <img src="logo.svg" alt="Charpente du Léon" class="logo" width="230" height="155">
+      </picture>
+      <h1>Bienvenue</h1>
       <p class="discret">Ton assistant de poche : documents, chantiers, notes et point du jour.</p>
 
       <ol class="etapes">

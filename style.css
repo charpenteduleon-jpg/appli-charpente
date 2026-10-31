@@ -1,7 +1,10 @@
 /* ===================== Couleurs et bases ===================== */
 :root {
-  --bleu: #1c4587;
-  --bleu-vif: #2f6fde;
+  /* Couleurs du logo : bleu marine #23376D et or #D5AC83 → #A88867 */
+  --bleu: #23376d;
+  --bleu-vif: #2f5bb7;
+  --or: #b8956b;
+  --or-degrade: linear-gradient(135deg, #d5ac83, #a88867);
   --bleu-clair: #e9effa;
   --orange: #e67e22;
   --orange-clair: #fff3e6;
@@ -19,7 +22,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bleu-vif: #6c9cf0;
+    --bleu: #34508f;
+    --bleu-vif: #7d9be0;
     --bleu-clair: #1d2738;
     --orange-clair: #33261a;
     --vert-clair: #15291e;
@@ -59,6 +63,10 @@ button { cursor: pointer; }
 @keyframes apparition { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .titre-page { padding: 12px 4px 10px; }
+.titre-page.avec-logo { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.logo-entete img { display: block; width: 104px; height: auto; margin-top: -4px; }
+.logo-bas { display: block; margin: 28px auto 0; text-align: center; }
+.logo-bas img { width: 150px; height: auto; opacity: .9; }
 .titre-page h1 { font-size: 34px; line-height: 1.1; letter-spacing: -.02em; margin: 0; font-weight: 800; }
 .titre-page.compact h1 { font-size: 28px; }
 .titre-page .discret { margin-top: 6px; }
@@ -112,8 +120,8 @@ button { cursor: pointer; }
 .deposer {
   display: flex; align-items: center; gap: 14px; width: 100%; margin: 6px 0 12px; padding: 18px 16px;
   border: none; border-radius: 20px; text-align: left; color: #fff;
-  background: linear-gradient(135deg, #1c4587 0%, #2f6fde 100%);
-  box-shadow: 0 8px 22px rgba(28,69,135,.35);
+  background: linear-gradient(135deg, #1a2a55 0%, #23376d 55%, #34508f 100%);
+  box-shadow: 0 8px 22px rgba(35,55,109,.35), inset 0 -3px 0 #c9a37c;
 }
 .deposer:active { transform: scale(.98); }
 .deposer-ico { font-size: 40px; width: 58px; height: 58px; display: grid; place-items: center; background: rgba(255,255,255,.16); border-radius: 16px; flex: none; }
@@ -266,6 +274,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 .rubrique a.fichier { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--bord); color: var(--texte); text-decoration: none; font-size: 15px; }
 .rubrique a.fichier:first-of-type { border-top: none; }
 .rubrique a.fichier span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rubrique .fichier-texte { display: flex; flex-direction: column; min-width: 0; }
+.rubrique .fichier-texte span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rubrique .fichier-texte small { color: var(--texte-doux); font-size: 12px; margin-top: 2px; }
+.rubrique button.tout-voir { display: flex; gap: 10px; align-items: center; width: 100%; padding: 10px 0; border: none; border-top: 1px solid var(--bord); background: none; color: var(--bleu-vif); font-size: 15px; font-weight: 600; text-align: left; }
 .vignettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .vignettes img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; display: block; }
 
@@ -300,7 +312,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 
 /* ===================== Bienvenue ===================== */
 .bienvenue { text-align: center; padding-top: 24px; }
-.bienvenue .logo { width: 88px; height: 88px; border-radius: 22px; box-shadow: var(--ombre); }
+.bienvenue .logo { width: 230px; max-width: 70%; height: auto; }
 .bienvenue h1 { font-size: 30px; margin: 14px 0 6px; }
 .etapes { list-style: none; padding: 0; margin: 22px 0; text-align: left; }
 .etapes li { display: flex; gap: 12px; align-items: flex-start; background: var(--carte); border-radius: var(--rayon); padding: 14px; margin-bottom: 10px; box-shadow: var(--ombre); }
@@ -342,7 +354,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 .barre-onglets button.active { color: var(--bleu-vif); }
 .barre-onglets button.active svg { stroke-width: 2.3; }
 .onglet-central { justify-self: center; }
-.onglet-central svg { width: 54px; height: 54px; padding: 13px; border-radius: 50%; background: var(--bleu); color: #fff; stroke: #fff; stroke-width: 2.6; box-shadow: 0 6px 16px rgba(28,69,135,.4); margin-top: -18px; }
+.onglet-central svg { width: 54px; height: 54px; padding: 13px; border-radius: 50%; background: var(--bleu); color: #fff; stroke: #fff; stroke-width: 2.6; box-shadow: 0 6px 16px rgba(35,55,109,.4), inset 0 0 0 2px #d5ac83; margin-top: -18px; }
 .pastille { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--rouge); color: #fff; font-size: 11px; line-height: 18px; font-style: normal; }
 body.sans-barre .barre-onglets { display: none; }
 
