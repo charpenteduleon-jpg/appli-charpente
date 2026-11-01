@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
   <title>Charpente du Léon</title>
   <meta name="theme-color" content="#23376d">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -42,6 +45,17 @@
     <div id="bandeau-maj" class="bandeau info cache">
       <div><strong>Nouvelle version disponible</strong><p>Les dernières améliorations sont prêtes.</p></div>
       <button id="btn-maj" class="btn-petit">Mettre à jour</button>
+    </div>
+
+    <div id="bandeau-securite" class="bandeau cache">
+      <div><strong>🔒 Tentative d'accès refusée</strong><p id="bandeau-securite-texte"></p></div>
+      <button id="btn-securite-vu" class="btn-petit">Vu</button>
+    </div>
+
+    <div id="bandeau-faceid" class="bandeau info cache">
+      <div><strong>🔒 Protège l'appli avec Face ID</strong><p>Personne d'autre que toi ne pourra l'ouvrir.</p></div>
+      <button id="btn-activer-faceid" class="btn-petit">Activer</button>
+      <button class="fermer" data-ferme="bandeau-faceid" aria-label="Fermer">×</button>
     </div>
 
     <button id="btn-deposer" class="deposer">
@@ -285,12 +299,24 @@
     <button class="retour" data-retour>‹ Retour</button>
     <header class="titre-page compact"><h1>Réglages</h1></header>
 
+    <h3 class="titre-section">Sécurité</h3>
+    <div class="carte">
+      <p id="securite-appareil"></p>
+      <div id="bloc-appairage" class="cache">
+        <div class="champ"><label for="reglage-appairage">Code d'appairage (16 caractères, donné par Claude)</label>
+          <input id="reglage-appairage" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="40" placeholder="XXXX-XXXX-XXXX-XXXX"></div>
+        <button id="btn-appairer" class="btn principal">Appairer cet appareil</button>
+      </div>
+    </div>
+    <ul id="securite-options" class="menu"></ul>
+    <h3 class="titre-section">Appareils autorisés</h3>
+    <ul id="appareils-liste" class="menu"></ul>
+    <p class="discret petit">Seuls ces appareils peuvent lire et envoyer. Chaque demande est signée avec la clé de l'appareil, qui ne quitte jamais le téléphone, et les données gardées sur le téléphone sont chiffrées.</p>
+
     <h3 class="titre-section">Connexion au serveur Google</h3>
     <div class="carte">
       <div class="champ"><label for="reglage-url">Adresse du serveur (déjà remplie)</label>
         <input id="reglage-url" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-      <div class="champ"><label for="reglage-code">Code secret (12 caractères)</label>
-        <input id="reglage-code" type="text" inputmode="text" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="40"></div>
       <div class="deux-boutons">
         <button id="btn-tester" class="btn secondaire">Tester</button>
         <button id="btn-enregistrer-reglages" class="btn principal">Enregistrer</button>
@@ -326,7 +352,7 @@
         </li>
         <li id="etape-serveur">
           <span class="num">2</span>
-          <div><strong>Se connecter au serveur</strong><p>Tape seulement le code secret (12 caractères) : l'adresse est déjà remplie.</p>
+          <div><strong>Appairer l'iPhone</strong><p>Tape le code d'appairage donné par Claude : l'iPhone reçoit sa propre clé, personne d'autre ne peut se connecter.</p>
             <button class="btn-petit" data-ouvre="reglages">Ouvrir les réglages</button></div>
           <span class="coche"></span>
         </li>
@@ -351,6 +377,18 @@
       <button id="btn-commencer" class="btn principal">C'est parti</button>
     </div>
   </section>
+
+  <!-- ===================== VERROU (Face ID) ===================== -->
+  <div id="verrou" class="verrou cache">
+    <picture>
+      <source srcset="logo-blanc.svg" media="(prefers-color-scheme: dark)">
+      <img src="logo.svg" alt="Charpente du Léon" width="200" height="135">
+    </picture>
+    <h1>🔒 Appli verrouillée</h1>
+    <p id="verrou-message" class="discret">Tes chantiers et tes documents sont protégés.</p>
+    <button id="btn-deverrouiller" class="btn principal">Déverrouiller avec Face ID</button>
+    <button id="btn-reinitialiser" class="lien">Face ID ne marche plus ?</button>
+  </div>
 
   <!-- ===================== BARRE D'ONGLETS ===================== -->
   <nav id="barre-onglets" class="barre-onglets" aria-label="Navigation">

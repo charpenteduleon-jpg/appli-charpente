@@ -369,3 +369,21 @@ body.sans-barre .barre-onglets { display: none; }
 body.sans-barre .toast { bottom: calc(env(safe-area-inset-bottom) + 90px); }
 .toast.ok { background: var(--vert); }
 .toast.erreur { background: var(--rouge); }
+
+/* ===================== Sécurité ===================== */
+.verrou {
+  position: fixed; inset: 0; z-index: 50; background: var(--fond);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 24px); text-align: center;
+}
+.verrou img { width: 200px; max-width: 60%; height: auto; margin-bottom: 8px; }
+.verrou h1 { font-size: 24px; margin: 8px 0 0; }
+.verrou .btn { max-width: 320px; margin-top: 12px; }
+/* Verrouillée : rien n'est visible derrière l'écran Face ID. En arrière-plan : aperçu flouté. */
+body.verrouillee > :not(#verrou):not(#toast) { visibility: hidden; }
+body.masque > :not(#verrou) { filter: blur(18px); }
+#securite-appareil { margin: 0; font-size: 15px; }
+#bloc-appairage { margin-top: 12px; }
+.menu .ligne small { display: block; font-size: 12px; }
+.menu .ligne .btn-petit { flex: none; width: auto; margin: 0 0 0 auto; padding: 7px 14px; font-size: 14px; color: #fff; background: var(--rouge); }
+.bandeau .btn-petit { margin-top: 0; }

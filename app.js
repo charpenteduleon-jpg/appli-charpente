@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -11,20 +11,80 @@ const SEUIL_RAFALES = 50;          // km/h : au-delà, levage déconseillé
 const DELAI_SERVEUR_MS = 45000;
 const ATELIER = { lat: 48.6644, lon: -4.1006, nom: 'Cléder (atelier)' };
 const STATUTS = ['À venir', 'En cours', 'Terminé', 'Archivé'];
+const DELAI_VERROU_MS = 2 * 60000; // retour dans l'appli après 2 minutes ailleurs : Face ID redemandé
 
 // ===================== Stockage local =====================
+// Les réglages simples (interrupteurs, identifiant de l'appareil) restent en clair dans localStorage.
+// Les données (chantiers, fiches clients, tâches, agenda…) sont dans un « coffre » chiffré en AES-GCM
+// 256 bits, dont la clé non exportable est gardée par l'iPhone (IndexedDB, protégée par le trousseau).
 function lire(cle, defaut = null) {
   try { const v = localStorage.getItem(cle); return v === null ? defaut : v; } catch { return defaut; }
 }
 function ecrire(cle, valeur) {
   try { localStorage.setItem(cle, valeur); } catch { /* stockage plein ou indisponible */ }
 }
-function lireJson(cle, defaut) {
-  try { return JSON.parse(lire(cle)) ?? defaut; } catch { return defaut; }
-}
-const ecrireJson = (cle, v) => ecrire(cle, JSON.stringify(v));
 
-// L'adresse du serveur n'est pas secrète (rien ne passe sans le code), donc elle est déjà remplie.
+let coffre = {};
+function lireJson(cle, defaut) {
+  const v = coffre[cle];
+  return v === undefined || v === null ? defaut : structuredClone(v);
+}
+function ecrireJson(cle, v) {
+  coffre[cle] = v === undefined ? null : structuredClone(v);
+  sauverCoffreBientot();
+}
+
+let minuteurCoffre = null;
+function sauverCoffreBientot() {
+  clearTimeout(minuteurCoffre);
+  minuteurCoffre = setTimeout(sauverCoffre, 300);
+}
+
+async function sauverCoffre() {
+  clearTimeout(minuteurCoffre);
+  if (!securite.cleDonnees) return;
+  ecrire('coffre', JSON.stringify(await chiffrer(JSON.stringify(coffre))));
+}
+
+async function ouvrirCoffre() {
+  const brut = lire('coffre');
+  if (brut) {
+    try { coffre = JSON.parse(await dechiffrer(JSON.parse(brut))); } catch (e) { console.warn('Coffre illisible, on repart de zéro', e); coffre = {}; }
+  }
+  // Passage de la 1.3 : les données étaient en clair dans localStorage, on les range dans le coffre.
+  let migre = false;
+  for (const cle of Object.keys(localStorage)) {
+    const v = localStorage.getItem(cle);
+    if (cle === 'coffre' || !/^[[{]/.test(v || '')) continue;
+    try { coffre[cle] = JSON.parse(v); localStorage.removeItem(cle); migre = true; } catch { /* pas du JSON */ }
+  }
+  if (migre) await sauverCoffre();
+}
+
+// ===================== Chiffrement =====================
+function enBase64(tampon) {
+  const octets = new Uint8Array(tampon);
+  let s = '';
+  for (let i = 0; i < octets.length; i += 0x8000) s += String.fromCharCode.apply(null, octets.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+const deBase64 = (texte) => Uint8Array.from(atob(texte), (c) => c.charCodeAt(0));
+const enBase64Url = (t) => enBase64(t).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const deBase64Url = (t) => deBase64(t.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((t.length + 3) % 4));
+const aleatoire = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+async function chiffrer(texte) {
+  const iv = aleatoire(12);
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, securite.cleDonnees, new TextEncoder().encode(texte));
+  return { iv: enBase64(iv), data: enBase64(data) };
+}
+
+async function dechiffrer({ iv, data }) {
+  const clair = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: deBase64(iv) }, securite.cleDonnees, deBase64(data));
+  return new TextDecoder().decode(clair);
+}
+
+// L'adresse du serveur n'est pas secrète : sans la clé d'un appareil appairé, il ne répond à rien.
 const URL_SERVEUR = 'https://script.google.com/macros/s/AKfycbyKMQw7wS_GB3t2WpaudSEm9tP9LGqs0yrj1bQD5uyOVOVMXc9Ebhz2IgoEWHJsXpCD/exec';
 
 // Retrouve l'adresse du serveur dans un texte collé (lien réécrit par Gmail, espaces, retour à la ligne…).
@@ -35,16 +95,16 @@ function nettoyerUrl(texte) {
   return m ? `https://script.google.com/macros/s/${m[1]}/exec` : '';
 }
 
-// Le code fait 12 caractères 0-9 A-F : on enlève espaces, minuscules et texte collé autour.
-function nettoyerCode(texte) {
-  const t = String(texte || '').replace(/\s+/g, '').toUpperCase();
-  return (t.match(/[0-9A-F]{12}/) || [t])[0];
+// Code secret de l'appli 1.3 (12 caractères 0-9 A-F), servi une seule fois pour l'appairage automatique.
+function ancienCode() {
+  const t = String(lire('reglage-code', '')).replace(/\s+/g, '').toUpperCase();
+  return (t.match(/[0-9A-F]{12}/) || [''])[0];
 }
 
 const reglages = {
   get url() { return nettoyerUrl(lire('reglage-url')) || URL_SERVEUR; },
-  get code() { return nettoyerCode(lire('reglage-code')); },
-  ok() { return this.url.startsWith('https://') && this.code.length > 0; },
+  get appareil() { return lire('appareil-id', ''); },
+  ok() { return this.url.startsWith('https://') && !!this.appareil && !!securite.cleAppareil; },
 };
 
 const estInstallee = () => window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
@@ -99,39 +159,208 @@ function toast(message, genre = '') {
   toastMinuteur = setTimeout(() => t.classList.add('cache'), 3500);
 }
 
-// ===================== File d'attente hors ligne (IndexedDB) =====================
+// ===================== File d'attente hors ligne et clés (IndexedDB) =====================
 const BASE = 'charpente-du-leon';
 const MAGASIN = 'envois';
+const MAGASIN_CLES = 'cles';
 let basePromesse = null;
 
 function ouvrirBase() {
   basePromesse ??= new Promise((resoudre, rejeter) => {
-    const req = indexedDB.open(BASE, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(MAGASIN, { keyPath: 'id' });
+    const req = indexedDB.open(BASE, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(MAGASIN)) db.createObjectStore(MAGASIN, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(MAGASIN_CLES)) db.createObjectStore(MAGASIN_CLES);
+    };
     req.onsuccess = () => resoudre(req.result);
     req.onerror = () => rejeter(req.error);
   });
   return basePromesse;
 }
 
-async function fileAction(mode, fn) {
+async function fileAction(mode, fn, magasin = MAGASIN) {
   const db = await ouvrirBase();
   return new Promise((resoudre, rejeter) => {
-    const tx = db.transaction(MAGASIN, mode);
-    const req = fn(tx.objectStore(MAGASIN));
+    const tx = db.transaction(magasin, mode);
+    const req = fn(tx.objectStore(magasin));
     tx.oncomplete = () => resoudre(req && req.result);
     tx.onerror = () => rejeter(tx.error);
   });
 }
-const fileAjouter = (envoi) => fileAction('readwrite', (s) => s.put(envoi));
+
+// Chaque envoi en attente (photos de factures comprises) est chiffré avant d'être gardé.
+async function fileAjouter(envoi) {
+  const { iv, data } = await chiffrer(JSON.stringify(envoi));
+  return fileAction('readwrite', (s) => s.put({ id: envoi.id, cree: envoi.cree, iv, data }));
+}
 const fileRetirer = (id) => fileAction('readwrite', (s) => s.delete(id));
-const fileTout = async () => (await fileAction('readonly', (s) => s.getAll())).sort((a, b) => a.cree - b.cree);
+const fileCompter = () => fileAction('readonly', (s) => s.count());
+
+async function fileTout() {
+  if (!securite.cleDonnees) throw new Error('Clés pas encore chargées');
+  const lignes = (await fileAction('readonly', (s) => s.getAll())).sort((a, b) => a.cree - b.cree);
+  const envois = [];
+  for (const l of lignes) {
+    if (!l.data) { envois.push(l); continue; } // gardé en clair par l'appli 1.3
+    try { envois.push(JSON.parse(await dechiffrer(l))); } catch (e) {
+      console.warn('Envoi illisible, retiré', l.id, e);
+      await fileRetirer(l.id);
+    }
+  }
+  return envois;
+}
+
+const cleLire = (nom) => fileAction('readonly', (s) => s.get(nom), MAGASIN_CLES);
+const cleEcrire = (nom, cle) => fileAction('readwrite', (s) => s.put(cle, nom), MAGASIN_CLES);
 
 const nouvelId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+// ===================== Sécurité de l'appareil =====================
+// Clé d'appareil (HMAC) : signe chaque requête, le serveur refuse tout ce qui n'est pas signé.
+// Clé de données (AES) : chiffre le coffre et la file d'attente. Les deux sont non exportables :
+// même un script qui lirait le stockage du téléphone ne pourrait pas les recopier.
+const securite = { cleAppareil: null, cleDonnees: null, verrouillee: false, cacheDepuis: 0 };
+let demarree = false;
+
+async function chargerCles() {
+  securite.cleAppareil = (await cleLire('appareil')) || null;
+  let donnees = await cleLire('donnees');
+  if (!donnees) {
+    donnees = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    await cleEcrire('donnees', donnees);
+  }
+  securite.cleDonnees = donnees;
+  if (!securite.cleAppareil) localStorage.removeItem('appareil-id');
+}
+
+async function signer(donnees) {
+  const charge = JSON.stringify({ ...donnees, t: Date.now(), n: enBase64(aleatoire(16)) });
+  const sig = await crypto.subtle.sign('HMAC', securite.cleAppareil, new TextEncoder().encode(charge));
+  return JSON.stringify({ appareil: reglages.appareil, charge, sig: enBase64(sig) });
+}
+
+const nomAppareil = () => `${/iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : 'Ordinateur'} de Jean-Phi`;
+
+// La clé est tirée au hasard sur le téléphone et envoyée une seule fois au serveur, avec le code d'appairage.
+async function appairer(code, nom = nomAppareil()) {
+  const brute = aleatoire(32);
+  const cle = await crypto.subtle.importKey('raw', brute, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const res = await appelServeur({ action: 'appairer', code, nom, cle: enBase64(brute) });
+  brute.fill(0);
+  await cleEcrire('appareil', cle);
+  securite.cleAppareil = cle;
+  ecrire('appareil-id', res.appareil);
+  ecrire('appareil-nom', res.nom);
+  localStorage.removeItem('reglage-code');
+  return res;
+}
+
+// Passage de la 1.3 : l'ancien code secret sert une fois à appairer l'iPhone, puis le serveur l'efface.
+async function appairageAutomatique() {
+  const ancien = ancienCode();
+  if (reglages.appareil || !ancien || !navigator.onLine) return;
+  try {
+    await appairer(ancien);
+    toast('🔒 Appli sécurisée : ton iPhone a maintenant sa propre clé.', 'ok');
+    majEtat();
+    if (ecranCourant === 'accueil') rafraichirAccueil();
+  } catch (e) {
+    console.warn('Appairage automatique impossible', e);
+    if (e.refus) localStorage.removeItem('reglage-code'); // code déjà utilisé : il faudra un code d'appairage
+  }
+}
+
+// --- Face ID : l'appli s'ouvre seulement après reconnaissance du visage (clé d'accès de l'iPhone) ---
+const faceIdActif = () => !!lire('faceid-id');
+
+async function faceIdDisponible() {
+  try { return !!window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { return false; }
+}
+
+async function activerFaceId() {
+  if (!(await faceIdDisponible())) { toast('Face ID n\'est pas disponible sur cet appareil.', 'erreur'); return; }
+  try {
+    const cred = await navigator.credentials.create({ publicKey: {
+      rp: { name: 'Charpente du Léon', id: location.hostname },
+      user: { id: aleatoire(16), name: 'Jean-Phi', displayName: 'Jean-Phi' },
+      challenge: aleatoire(32),
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+      timeout: 60000,
+    } });
+    ecrire('faceid-id', enBase64Url(cred.rawId));
+    $('#bandeau-faceid').classList.add('cache');
+    toast('Face ID activé 🔒', 'ok');
+  } catch (e) {
+    toast(`Face ID non activé (${e.message})`, 'erreur');
+  }
+  dessinerSecurite();
+}
+
+async function verifierFaceId() {
+  await navigator.credentials.get({ publicKey: {
+    challenge: aleatoire(32), rpId: location.hostname, timeout: 60000, userVerification: 'required',
+    allowCredentials: [{ type: 'public-key', id: deBase64Url(lire('faceid-id')) }],
+  } });
+}
+
+async function desactiverFaceId() {
+  try { await verifierFaceId(); } catch { toast('Face ID non reconnu.', 'erreur'); return; }
+  localStorage.removeItem('faceid-id');
+  toast('Face ID désactivé', 'ok');
+  dessinerSecurite();
+}
+
+function verrouiller() {
+  securite.verrouillee = true;
+  document.body.classList.add('verrouillee');
+  $('#verrou-message').textContent = 'Tes chantiers et tes documents sont protégés.';
+  $('#verrou').classList.remove('cache');
+  setTimeout(() => { if (!document.hidden) deverrouiller(true); }, 400);
+}
+
+async function deverrouiller(automatique = false) {
+  const b = $('#btn-deverrouiller');
+  if (b.disabled) return;
+  b.disabled = true;
+  try {
+    await verifierFaceId();
+    securite.verrouillee = false;
+    document.body.classList.remove('verrouillee', 'masque');
+    $('#verrou').classList.add('cache');
+    if (!demarree) await demarrer();
+    else { viderFile(); if (ecranCourant === 'accueil') rafraichirAccueil(); }
+  } catch (e) {
+    // Safari peut refuser l'ouverture automatique de Face ID : il suffit alors de toucher le bouton.
+    if (!automatique) $('#verrou-message').textContent = 'Visage non reconnu : réessaie.';
+  } finally {
+    b.disabled = false;
+  }
+}
+
+// Face ID perdu : on efface tout ce que l'appli garde sur ce téléphone. Rien ne fuit, il faudra seulement
+// un nouveau code d'appairage (Claude le donne).
+async function reinitialiserAppli() {
+  if (!confirm('Effacer l\'appli de ce téléphone (données, clé, envois en attente) ? Il faudra un nouveau code d\'appairage, à demander à Claude.')) return;
+  localStorage.clear();
+  await fileAction('readwrite', (s) => s.clear(), MAGASIN_CLES);
+  await fileAction('readwrite', (s) => s.clear());
+  location.reload();
+}
+
+// --- Alerte : le serveur signale les tentatives d'accès refusées jusqu'à ce que Jean-Phi touche « Vu » ---
+function majAlerteSecurite(alerte) {
+  $('#bandeau-securite').classList.toggle('cache', !alerte);
+  if (!alerte) return;
+  $('#bandeau-securite-texte').textContent = `${alerte.refus} tentative${alerte.refus > 1 ? 's' : ''} refusée${alerte.refus > 1 ? 's' : ''}, la dernière ${quandLisible(alerte.dernier)} (${alerte.motif}). Détail dans le « Journal de sécurité » sur Drive.`;
+}
+
 // ===================== Serveur Google =====================
 async function appelServeur(donnees) {
-  if (!reglages.ok()) throw new Error('Réglages incomplets');
+  const appairage = donnees.action === 'appairer';
+  if (!appairage && !reglages.ok()) throw new Error('Appareil pas encore appairé (Plus › Réglages)');
+  const corps = appairage ? JSON.stringify(donnees) : await signer(donnees);
   const controle = new AbortController();
   const minuteur = setTimeout(() => controle.abort(), DELAI_SERVEUR_MS);
   try {
@@ -139,18 +368,22 @@ async function appelServeur(donnees) {
       method: 'POST',
       // text/plain évite la requête préalable que Google Apps Script ne sait pas traiter
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ ...donnees, code: reglages.code }),
+      body: corps,
       redirect: 'follow',
       signal: controle.signal,
     });
     if (!reponse.ok) throw new Error(`Serveur : erreur ${reponse.status}`);
     const json = await reponse.json();
     if (!json.ok) {
-      // Le serveur a bien reçu mais refuse : inutile de réessayer (sauf code secret, à corriger dans les réglages)
+      // Refus de sécurité : l'envoi est gardé (il repartira après un nouvel appairage).
+      // Autre refus : le serveur a bien reçu, inutile de réessayer.
       const err = new Error(json.erreur || 'Erreur du serveur');
-      err.definitive = json.erreur !== 'Code secret incorrect';
+      err.refus = !!json.refus;
+      err.definitive = !json.refus;
+      if (json.refus && /Appareil inconnu/.test(json.erreur)) { localStorage.removeItem('appareil-id'); securite.cleAppareil = null; majEtat(); }
       throw err;
     }
+    if (!appairage) majAlerteSecurite(json.alerte);
     return json;
   } catch (e) {
     if (e.name === 'AbortError') throw new Error('Le serveur met trop de temps à répondre');
@@ -184,14 +417,14 @@ const progression = { total: 0, faits: 0 };
 
 async function mettreEnFile(envois) {
   for (const e of envois) await fileAjouter({ ...e, id: e.id || nouvelId(), cree: Date.now() });
-  const avant = (await fileTout()).length;
+  const avant = await fileCompter();
   await viderFile();
-  const apres = (await fileTout()).length;
+  const apres = await fileCompter();
   return { tousPartis: apres === 0, partis: avant - apres };
 }
 
 async function viderFile() {
-  if (envoiEnCours) return;
+  if (envoiEnCours || !demarree || securite.verrouillee) return;
   if (!navigator.onLine || !reglages.ok()) { await majEnvois(); return; }
   envoiEnCours = true;
   try {
@@ -241,7 +474,7 @@ function noterEnvoi(envoi, res, probleme = '') {
 }
 
 async function majEnvois() {
-  const enAttente = (await fileTout()).length;
+  const enAttente = await fileCompter();
   const derniers = lireJson('derniers', []);
   $('#envois').classList.toggle('cache', enAttente === 0 && derniers.length === 0);
 
@@ -261,7 +494,7 @@ async function majEnvois() {
 
 function majEtat() {
   const etat = $('#etat');
-  if (!reglages.ok()) { etat.textContent = 'À configurer : Plus › Réglages'; etat.className = 'etat hors'; }
+  if (!reglages.ok()) { etat.textContent = 'À appairer : Plus › Réglages'; etat.className = 'etat hors'; }
   else if (!navigator.onLine) { etat.textContent = 'Hors ligne : tout est gardé et partira plus tard'; etat.className = 'etat hors'; }
   else { etat.textContent = 'Connecté'; etat.className = 'etat ok'; }
 }
@@ -335,6 +568,7 @@ function rafraichirAccueil() {
   const h = maintenant.getHours();
   $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
+  majBandeauFaceId();
   majEnvois();
   chargerMeteo();
   lireAvecCache('agenda', { action: 'agenda' }, (r) => r.evenements, dessinerAgenda);
@@ -994,16 +1228,77 @@ function calculerRampant() {
 // ===================== Réglages et autorisations =====================
 function ouvrirReglages() {
   $('#reglage-url').value = reglages.url;
-  $('#reglage-code').value = reglages.code;
   afficher('reglages');
+  dessinerSecurite();
   dessinerAutorisations();
 }
 
 function enregistrerReglages() {
   ecrire('reglage-url', nettoyerUrl($('#reglage-url').value));
-  ecrire('reglage-code', nettoyerCode($('#reglage-code').value));
   $('#reglage-url').value = reglages.url;
-  $('#reglage-code').value = reglages.code;
+}
+
+async function majBandeauFaceId() {
+  const proposer = reglages.ok() && !faceIdActif() && lire('bandeau-faceid-ferme') !== '1' && await faceIdDisponible();
+  $('#bandeau-faceid').classList.toggle('cache', !proposer);
+}
+
+async function dessinerSecurite() {
+  const appaire = reglages.ok();
+  $('#securite-appareil').textContent = appaire
+    ? `✅ ${lire('appareil-nom', 'Cet appareil')} est appairé : ses demandes sont signées avec sa propre clé.`
+    : '⚠️ Cet appareil n\'est pas encore appairé. Tape le code d\'appairage donné par Claude.';
+  $('#bloc-appairage').classList.toggle('cache', appaire);
+  const dispo = await faceIdDisponible();
+  const actif = faceIdActif();
+  $('#securite-options').replaceChildren(el('li', {}, el('button', { onclick: actif ? desactiverFaceId : activerFaceId },
+    el('span', {}, '🔒'), 'Face ID à l\'ouverture',
+    el('b', { class: `valeur ${actif ? 'ok' : ''}` }, actif ? 'Activé' : dispo ? 'Activer' : 'Indisponible'))));
+  const ul = $('#appareils-liste');
+  if (!appaire || !navigator.onLine) { ul.replaceChildren(el('li', {}, el('div', { class: 'ligne' }, el('span', {}, '📱'), appaire ? 'Hors ligne' : '—'))); return; }
+  try {
+    const { appareils } = await appelServeur({ action: 'appareils' });
+    ul.replaceChildren(...appareils.map((a) => el('li', {}, el('div', { class: 'ligne' },
+      el('span', {}, a.moi ? '📱' : '💻'),
+      el('div', {}, el('div', {}, `${a.nom}${a.moi ? ' (celui-ci)' : ''}`), el('small', { class: 'discret' }, `appairé ${quandLisible(a.cree)} · vu ${quandLisible(a.vu)}`)),
+      a.moi ? null : el('button', { class: 'btn-petit valeur', onclick: () => retirerAppareil(a) }, 'Retirer')))));
+  } catch (e) {
+    ul.replaceChildren(el('li', {}, el('div', { class: 'ligne' }, el('span', {}, '⚠️'), `Liste indisponible : ${e.message}`)));
+  }
+}
+
+async function retirerAppareil(a) {
+  if (!confirm(`Retirer « ${a.nom} » ? Il ne pourra plus rien lire ni envoyer.`)) return;
+  try {
+    await appelServeur({ action: 'retirerAppareil', cible: a.id });
+    toast(`${a.nom} retiré ✅`, 'ok');
+  } catch (e) { toast(e.message, 'erreur'); }
+  dessinerSecurite();
+}
+
+async function appairerAvecCode() {
+  const code = $('#reglage-appairage').value.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (code.length < 12) { toast('Le code d\'appairage fait 16 caractères.', 'erreur'); return; }
+  const b = $('#btn-appairer');
+  b.disabled = true;
+  try {
+    await appairer(code);
+    $('#reglage-appairage').value = '';
+    toast('Appareil appairé ✅', 'ok');
+    majEtat();
+    viderFile();
+    rafraichirChantiers();
+  } catch (e) {
+    toast(`Échec : ${e.message}`, 'erreur');
+  } finally {
+    b.disabled = false;
+    dessinerSecurite();
+  }
+}
+
+async function securiteVu() {
+  $('#bandeau-securite').classList.add('cache');
+  try { await appelServeur({ action: 'securiteVu' }); } catch (e) { console.warn('Alerte non acquittée', e); }
 }
 
 // Après un échec : le serveur répond-il à une simple lecture ? Sépare « réseau / adresse » de « envoi bloqué ».
@@ -1027,7 +1322,7 @@ async function testerConnexion() {
   try {
     const res = await appelServeur({ action: 'ping' });
     toast(`Connexion OK ✅ ${res.compte || ''}`, 'ok');
-    diag.textContent = `Connexion OK · ${res.compte || ''} · serveur ${res.version || '?'} · appli ${VERSION}`;
+    diag.textContent = `Connexion OK · ${res.compte || ''} · ${res.appareil || ''} · serveur ${res.version || '?'} · appli ${VERSION}`;
     viderFile();
     rafraichirChantiers();
   } catch (e) {
@@ -1083,11 +1378,10 @@ async function dessinerAutorisations() {
 }
 
 async function viderDonnees() {
-  const enAttente = (await fileTout()).length;
+  const enAttente = await fileCompter();
   if (enAttente) { toast(`Impossible : ${enAttente} envoi(s) pas encore partis.`, 'erreur'); return; }
-  for (const cle of Object.keys(localStorage)) {
-    if (!cle.startsWith('reglage-') && cle !== 'bienvenue-ok') localStorage.removeItem(cle);
-  }
+  coffre = {};
+  await sauverCoffre();
   toast('Cache effacé ✅', 'ok');
 }
 
@@ -1200,6 +1494,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-ouvrir-claude').onclick = ouvrirClaude;
   for (const b of $$('[data-question]')) b.onclick = () => { $('#claude-texte').value = b.dataset.question; };
 
+  // Sécurité
+  $('#btn-deverrouiller').onclick = () => deverrouiller();
+  $('#btn-reinitialiser').onclick = reinitialiserAppli;
+  $('#btn-activer-faceid').onclick = activerFaceId;
+  $('#btn-securite-vu').onclick = securiteVu;
+  $('#btn-appairer').onclick = appairerAvecCode;
+
   // Réglages
   $('#btn-tester').onclick = testerConnexion;
   $('#btn-enregistrer-reglages').onclick = () => { enregistrerReglages(); toast('Réglages enregistrés', 'ok'); viderFile(); majEtat(); };
@@ -1213,7 +1514,16 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('online', () => { viderFile(); majEtat(); });
   window.addEventListener('offline', majEtat);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;
+    if (document.hidden) {
+      // Flou pour l'aperçu du sélecteur d'applis, coffre enregistré tout de suite.
+      securite.cacheDepuis = Date.now();
+      if (faceIdActif()) document.body.classList.add('masque');
+      sauverCoffre();
+      return;
+    }
+    document.body.classList.remove('masque');
+    if (faceIdActif() && demarree && !securite.verrouillee && Date.now() - securite.cacheDepuis > DELAI_VERROU_MS) { verrouiller(); return; }
+    if (!demarree || securite.verrouillee) return;
     viderFile();
     if (ecranCourant === 'accueil') rafraichirAccueil();
   });
@@ -1223,7 +1533,18 @@ document.addEventListener('DOMContentLoaded', () => {
   navigator.storage?.persist?.().catch(() => {});
   surveillerMisesAJour();
 
+  // Avec Face ID, rien n'est déchiffré avant la reconnaissance du visage.
+  if (faceIdActif()) verrouiller();
+  else demarrer();
+});
+
+async function demarrer() {
+  await chargerCles();
+  await ouvrirCoffre();
+  demarree = true;
+  dernierePosition = lireJson('position', null);
   if (lire('bienvenue-ok') !== '1') ouvrirBienvenue();
   else ouvrirOnglet('accueil');
+  await appairageAutomatique();
   viderFile();
-});
+}
