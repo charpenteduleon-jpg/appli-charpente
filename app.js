@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.4.2';
+const VERSION = '1.5.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -866,6 +866,156 @@ async function envoyerDocument() {
   else toast('Pas de réseau : gardé, il partira tout seul.');
 }
 
+// ===================== Import de la galerie =====================
+// Les photos choisies restent dans la galerie : l'appli en envoie une copie réduite, rangée dans le chantier
+// le plus proche de l'endroit de la prise de vue (si l'iPhone a laissé la position), à la date de la prise de vue.
+const RAYON_IMPORT_M = 150;
+const imp = { photos: [], chantierParDefaut: '' };
+
+// Date de prise de vue et position GPS lues dans l'EXIF d'une photo JPEG (les 256 premiers Ko suffisent).
+async function lireExif(fichier) {
+  const res = { date: null, lat: null, lon: null };
+  try {
+    const v = new DataView(await fichier.slice(0, 262144).arrayBuffer());
+    if (v.getUint16(0) !== 0xFFD8) return res;
+    let o = 2;
+    while (o + 10 < v.byteLength) {
+      const marqueur = v.getUint16(o);
+      if (marqueur === 0xFFE1 && v.getUint32(o + 4) === 0x45786966) { lireTiff(v, o + 10, res); break; } // « Exif »
+      if ((marqueur & 0xFF00) !== 0xFF00 || marqueur === 0xFFDA) break;
+      o += 2 + v.getUint16(o + 2);
+    }
+  } catch (e) { console.warn('EXIF illisible', e); }
+  return res;
+}
+
+function lireTiff(v, base, res) {
+  const le = v.getUint16(base) === 0x4949;
+  const u16 = (p) => v.getUint16(base + p, le);
+  const u32 = (p) => v.getUint32(base + p, le);
+  const entrees = (ifd) => {
+    const t = {};
+    for (let i = 0; i < u16(ifd); i++) { const e = ifd + 2 + i * 12; t[u16(e)] = { nb: u32(e + 4), val: e + 8 }; }
+    return t;
+  };
+  const texte = (e) => {
+    const p = e.nb > 4 ? u32(e.val) : e.val;
+    let s = '';
+    for (let i = 0; i < e.nb - 1; i++) s += String.fromCharCode(v.getUint8(base + p + i));
+    return s;
+  };
+  const degres = (e) => {
+    const p = u32(e.val);
+    const r = (i) => u32(p + i * 8) / (u32(p + i * 8 + 4) || 1);
+    return r(0) + r(1) / 60 + r(2) / 3600;
+  };
+  const ifd0 = entrees(u32(4));
+  const exif = ifd0[0x8769] ? entrees(u32(ifd0[0x8769].val)) : {};
+  const brut = exif[0x9003] || exif[0x9004] || ifd0[0x0132];
+  const m = brut && texte(brut).match(/(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+  if (m) res.date = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+  const gps = ifd0[0x8825] ? entrees(u32(ifd0[0x8825].val)) : null;
+  if (gps && gps[2] && gps[4]) {
+    const ref = (n, defaut) => (gps[n] ? String.fromCharCode(v.getUint8(base + gps[n].val)) : defaut);
+    res.lat = degres(gps[2]) * (ref(1, 'N') === 'S' ? -1 : 1);
+    res.lon = degres(gps[4]) * (ref(3, 'E') === 'W' ? -1 : 1);
+    if (!res.lat && !res.lon) res.lat = res.lon = null;
+  }
+}
+
+function chantierDePhoto(lat, lon) {
+  let meilleur = null;
+  for (const c of listeChantiers()) {
+    if (c.lat == null || c.lon == null) continue;
+    const d = distanceM(lat, lon, c.lat, c.lon);
+    if (d <= RAYON_IMPORT_M && (!meilleur || d < meilleur.d)) meilleur = { nom: c.nom, d };
+  }
+  return meilleur ? meilleur.nom : '';
+}
+
+function ouvrirImport(chantier = '') {
+  for (const p of imp.photos) URL.revokeObjectURL(p.vignette);
+  imp.photos = [];
+  imp.chantierParDefaut = chantier;
+  dessinerImport();
+  afficher('import');
+  $('#import-input').click(); // ouvre directement la galerie (doit rester dans le geste)
+  rafraichirChantiers().then(dessinerImport);
+}
+
+async function choisirImport(fichiers) {
+  $('#import-etat').textContent = `Lecture de ${fichiers.length} photo${fichiers.length > 1 ? 's' : ''}…`;
+  for (const f of fichiers) {
+    const exif = await lireExif(f);
+    const situee = exif.lat != null;
+    imp.photos.push({
+      fichier: f, date: exif.date || f.lastModified || Date.now(), lat: exif.lat, lon: exif.lon, situee,
+      // Position connue mais loin de tout chantier : à choisir. Sans position : le chantier d'où l'on vient.
+      chantier: situee ? chantierDePhoto(exif.lat, exif.lon) : imp.chantierParDefaut,
+      vignette: URL.createObjectURL(f),
+    });
+  }
+  dessinerImport();
+}
+
+function dessinerImport() {
+  const groupes = new Map();
+  for (const p of imp.photos.sort((a, b) => a.date - b.date)) {
+    if (!groupes.has(p.chantier)) groupes.set(p.chantier, []);
+    groupes.get(p.chantier).push(p);
+  }
+  const situees = imp.photos.filter((p) => p.situee).length;
+  $('#import-etat').textContent = imp.photos.length
+    ? `${imp.photos.length} photo${imp.photos.length > 1 ? 's' : ''} · ${situees} avec leur position${situees ? ' (📍)' : ' : choisis le chantier'}`
+    : '';
+  const ordre = [...groupes.keys()].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+  $('#import-groupes').replaceChildren(...ordre.map((nom) => {
+    const photos = groupes.get(nom);
+    const select = el('select', { onchange: (e) => { for (const p of photos) p.chantier = e.target.value; dessinerImport(); } });
+    remplirSelectChantiers(select, nom, '— Ne pas importer —');
+    return el('section', { class: 'carte groupe-import' },
+      el('div', { class: 'carte-entete' }, el('h2', {}, nom ? `🏗️ ${nom}` : '❓ Chantier à choisir'), el('span', { class: 'discret' }, String(photos.length))),
+      select,
+      el('div', { class: 'vignettes' }, ...photos.map((p) => el('div', { class: 'vignette-import' },
+        el('img', { src: p.vignette, alt: '', loading: 'lazy' }),
+        el('small', {}, `${new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}${p.situee ? ' 📍' : ''}`),
+        el('button', { class: 'suppr', 'aria-label': 'Retirer', onclick: () => { URL.revokeObjectURL(p.vignette); imp.photos.splice(imp.photos.indexOf(p), 1); dessinerImport(); } }, '×')))));
+  }));
+  const n = imp.photos.filter((p) => p.chantier).length;
+  $('#btn-import-envoyer').disabled = n === 0;
+  $('#btn-import-envoyer').textContent = n ? `Importer ${n} photo${n > 1 ? 's' : ''}` : 'Importer';
+}
+
+async function envoyerImport() {
+  const aEnvoyer = imp.photos.filter((p) => p.chantier);
+  if (!aEnvoyer.length) return;
+  if (!reglages.ok()) { toast('Appaire d\'abord cet iPhone (Plus › Réglages › Sécurité).', 'erreur'); return; }
+  const b = $('#btn-import-envoyer');
+  b.disabled = true;
+  let prets = 0;
+  for (const p of aEnvoyer) {
+    b.textContent = `Préparation ${prets + 1}/${aEnvoyer.length}…`;
+    try {
+      const data = await traiterImage(p.fichier, false);
+      // Nom du fichier sur Drive = date de prise de vue : une photo déjà importée n'est pas doublée.
+      await fileAjouter({
+        id: nouvelId(), cree: Date.now(), action: 'chantier', docId: nouvelId(), page: 1, total: 1,
+        date: new Date(p.date).toISOString(), chantier: p.chantier, type: '', note: 'Importée de la galerie',
+        ...(p.situee ? { lat: p.lat, lon: p.lon } : {}),
+        fichier: { mime: 'image/jpeg', data: data.split(',')[1] },
+      });
+      prets++;
+    } catch (e) { console.warn('Photo non préparée', e); }
+  }
+  for (const p of imp.photos) URL.revokeObjectURL(p.vignette);
+  imp.photos = [];
+  ouvrirOnglet('accueil');
+  toast(`${prets} photo${prets > 1 ? 's' : ''} en cours d'envoi…`);
+  await viderFile();
+  const reste = await fileCompter();
+  toast(reste ? `Pas de réseau : ${reste} envoi(s) partiront tout seuls.` : 'Photos rangées dans les chantiers ✅', reste ? '' : 'ok');
+}
+
 // ===================== Chantiers =====================
 async function rafraichirChantiers() {
   if (!navigator.onLine || !reglages.ok()) return listeChantiers();
@@ -1440,6 +1590,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (cible === 'note') ouvrirNote();
       else if (cible === 'point') ouvrirPoint();
       else if (cible === 'reglages') ouvrirReglages();
+      else if (cible === 'import') ouvrirImport();
       else if (cible === 'bienvenue') ouvrirBienvenue();
       else if (cible === 'calculs') { afficher('calculs'); calculerRampant(); }
       else afficher(cible);
@@ -1462,6 +1613,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('#btn-envoyer-doc').onclick = envoyerDocument;
 
+  // Import de la galerie
+  $('#import-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; choisirImport(f); };
+  $('#btn-import-choisir').onclick = () => $('#import-input').click();
+  $('#btn-import-envoyer').onclick = envoyerImport;
+
   // Chantiers
   $('#chantiers-recherche').oninput = dessinerChantiers;
   for (const b of $$('#filtres-statut [data-statut]')) {
@@ -1483,6 +1639,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dessinerChantiers();
   };
   $('#fiche-photo').onclick = () => nouveauDocument('chantier', ficheCourante?.nom || '');
+  $('#fiche-galerie').onclick = () => ouvrirImport(ficheCourante?.nom || '');
   $('#fiche-note').onclick = () => ouvrirNote(ficheCourante?.nom || '');
   $('#fiche-enregistrer').onclick = enregistrerInfosChantier;
 

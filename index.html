@@ -126,6 +126,7 @@
       <a id="fiche-appeler" class="bouton-rond cache"><span>📞</span>Appeler</a>
       <a id="fiche-itineraire" class="bouton-rond cache" target="_blank" rel="noopener"><span>🧭</span>Itinéraire</a>
       <button id="fiche-photo" class="bouton-rond"><span>📷</span>Photos</button>
+      <button id="fiche-galerie" class="bouton-rond"><span>🖼️</span>Galerie</button>
       <button id="fiche-note" class="bouton-rond"><span>🎙️</span>Note</button>
       <a id="fiche-drive" class="bouton-rond" target="_blank" rel="noopener"><span>📁</span>Dossier</a>
     </div>
@@ -161,6 +162,7 @@
       <li><button data-ouvre="claude"><span>💬</span>Demander à Claude<i>›</i></button></li>
       <li><button data-ouvre="note"><span>🎙️</span>Nouvelle note<i>›</i></button></li>
       <li><button data-ouvre="chantier"><span>🏗️</span>Photo de chantier<i>›</i></button></li>
+      <li><button data-ouvre="import"><span>🖼️</span>Importer de la galerie<i>›</i></button></li>
       <li><button data-ouvre="calculs"><span>📐</span>Calculs de charpente<i>›</i></button></li>
     </ul>
     <ul class="menu">
@@ -224,6 +226,22 @@
 
     <div class="pied-fixe">
       <button id="btn-envoyer-doc" class="btn principal" disabled>Ajouter</button>
+    </div>
+  </section>
+
+  <!-- ===================== IMPORT DE LA GALERIE ===================== -->
+  <section id="ecran-import" class="ecran plein cache">
+    <div class="barre-haut">
+      <button class="retour" data-annuler>Annuler</button>
+      <strong>Importer de la galerie</strong>
+      <span></span>
+    </div>
+    <p class="discret">Choisis tes photos de chantier : elles restent dans ta galerie. L'appli les range dans le bon chantier d'après l'endroit où elles ont été prises, avec leur vraie date.</p>
+    <button id="btn-import-choisir" class="btn secondaire">🖼️ Choisir des photos</button>
+    <p id="import-etat" class="discret"></p>
+    <div id="import-groupes"></div>
+    <div class="pied-fixe">
+      <button id="btn-import-envoyer" class="btn principal" disabled>Importer</button>
     </div>
   </section>
 
@@ -416,6 +434,7 @@
   <!-- Appareil photo et galerie (cachés, déclenchés par les boutons) -->
   <input id="photo-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="galerie-input" class="cache" type="file" accept="image/*,application/pdf" multiple>
+  <input id="import-input" class="cache" type="file" accept="image/*" multiple>
 
   <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
 

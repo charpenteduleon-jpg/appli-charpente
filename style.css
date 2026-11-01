@@ -370,6 +370,16 @@ body.sans-barre .toast { bottom: calc(env(safe-area-inset-bottom) + 90px); }
 .toast.ok { background: var(--vert); }
 .toast.erreur { background: var(--rouge); }
 
+/* ===================== Import de la galerie ===================== */
+#ecran-import > .discret { margin: 4px 0 12px; }
+#import-etat { margin: 10px 0 4px; }
+.groupe-import select { margin-bottom: 10px; }
+.groupe-import .vignettes { grid-template-columns: repeat(4, 1fr); }
+.vignette-import { position: relative; }
+.vignette-import img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
+.vignette-import small { display: block; font-size: 11px; color: var(--texte-doux); text-align: center; margin-top: 2px; }
+.vignette-import .suppr { position: absolute; right: 3px; top: 3px; width: 24px; height: 24px; border-radius: 50%; border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 15px; line-height: 1; }
+
 /* ===================== Sécurité ===================== */
 .verrou {
   position: fixed; inset: 0; z-index: 50; background: var(--fond);
