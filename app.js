@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -240,7 +240,10 @@ async function signer(donnees) {
   return JSON.stringify({ appareil: reglages.appareil, charge, sig: enBase64(sig) });
 }
 
-const nomAppareil = () => `${/iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : 'Ordinateur'} de Jean-Phi`;
+const surIos = () => /iPhone|iPad/.test(navigator.userAgent);
+// Sur l'iPhone, Safari et l'appli de l'écran d'accueil ont chacun leur stockage, donc leur propre clé :
+// le nom les distingue dans la liste des appareils autorisés.
+const nomAppareil = () => `${/iPad/.test(navigator.userAgent) ? 'iPad' : /iPhone/.test(navigator.userAgent) ? 'iPhone' : 'Ordinateur'} de Jean-Phi · ${estInstallee() ? 'appli' : 'navigateur'}`;
 
 // La clé est tirée au hasard sur le téléphone et envoyée une seule fois au serveur, avec le code d'appairage.
 async function appairer(code, nom = nomAppareil()) {
@@ -1245,10 +1248,13 @@ async function majBandeauFaceId() {
 
 async function dessinerSecurite() {
   const appaire = reglages.ok();
+  const dansSafari = surIos() && !estInstallee();
   $('#securite-appareil').textContent = appaire
     ? `✅ ${lire('appareil-nom', 'Cet appareil')} est appairé : ses demandes sont signées avec sa propre clé.`
-    : '⚠️ Cet appareil n\'est pas encore appairé. Tape le code d\'appairage donné par Claude.';
-  $('#bloc-appairage').classList.toggle('cache', appaire);
+    : dansSafari
+      ? '⚠️ Ici c\'est Safari. Ouvre l\'appli depuis son icône sur l\'écran d\'accueil pour l\'appairer.'
+      : '⚠️ Cet appareil n\'est pas encore appairé. Tape le code d\'appairage donné par Claude.';
+  $('#bloc-appairage').classList.toggle('cache', appaire || dansSafari);
   const dispo = await faceIdDisponible();
   const actif = faceIdActif();
   $('#securite-options').replaceChildren(el('li', {}, el('button', { onclick: actif ? desactiverFaceId : activerFaceId },
@@ -1268,7 +1274,7 @@ async function dessinerSecurite() {
 }
 
 async function retirerAppareil(a) {
-  if (!confirm(`Retirer « ${a.nom} » ? Il ne pourra plus rien lire ni envoyer.`)) return;
+  if (!confirm(`Retirer « ${a.nom} », appairé ${quandLisible(a.cree)} ? Ce n'est pas cet appareil-ci : il ne pourra plus rien lire ni envoyer.`)) return;
   try {
     await appelServeur({ action: 'retirerAppareil', cible: a.id });
     toast(`${a.nom} retiré ✅`, 'ok');
@@ -1277,6 +1283,7 @@ async function retirerAppareil(a) {
 }
 
 async function appairerAvecCode() {
+  if (surIos() && !estInstallee()) { toast('Ouvre l\'appli depuis son icône pour l\'appairer (pas Safari).', 'erreur'); return; }
   const code = $('#reglage-appairage').value.toUpperCase().replace(/[^0-9A-Z]/g, '');
   if (code.length < 12) { toast('Le code d\'appairage fait 16 caractères.', 'erreur'); return; }
   const b = $('#btn-appairer');
@@ -1317,6 +1324,12 @@ async function testerConnexion() {
   enregistrerReglages();
   const b = $('#btn-tester');
   const diag = $('#reglage-diagnostic');
+  if (!reglages.ok()) {
+    diag.textContent = '⚠️ Appairage d\'abord : tape le code d\'appairage dans « Sécurité », en haut de cette page.';
+    $('#securite-appareil').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (!$('#bloc-appairage').classList.contains('cache')) setTimeout(() => $('#reglage-appairage').focus(), 400);
+    return;
+  }
   b.textContent = 'Test…';
   diag.textContent = '';
   try {
