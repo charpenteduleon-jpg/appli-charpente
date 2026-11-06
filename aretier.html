@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Page de calcul autonome : aucun appel réseau, tout est calculé sur le téléphone. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Arêtier &amp; noue · Charpente du Léon</title>
+  <meta name="theme-color" content="#23376d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icone.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icone-180.png">
+  <style>
+    /* Mêmes couleurs que l'appli : bleu marine et or du logo */
+    :root {
+      --bg: #f3f4f8; --surface: #ffffff; --ink: #1c1c1e; --muted: #6e6e73; --line: #e3e3e8;
+      --navy: #23376d; --gold: #a88867; --gold-soft: #f6ece1; --warn: #d63c2f; --warn-soft: #fdeceb; --ok: #1f9d55;
+      --f-display: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+      --f-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      --f-num: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000; --surface: #1c1c1e; --ink: #f5f5f7; --muted: #98989f; --line: #2c2c2e;
+        --navy: #34508f; --gold: #d5ac83; --gold-soft: #2f271d; --warn: #ff8a80; --warn-soft: #3a1d1d; --ok: #6fcf97; color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.45; }
+    header {
+      color: #fff; border-radius: 0 0 26px 26px;
+      background: radial-gradient(120% 90% at 100% 0%, rgba(213,172,131,.35) 0%, transparent 55%), linear-gradient(160deg, #1a2850 0%, #23376d 55%, #2c4686 100%);
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+    header .wrap { padding-top: calc(env(safe-area-inset-top) + 8px); padding-bottom: 18px; }
+    .retour { background: none; border: none; color: #fff; opacity: .85; font: inherit; font-size: 17px; padding: 8px 0; cursor: pointer; }
+    .brand { font-weight: 600; letter-spacing: .08em; text-transform: uppercase; font-size: 12px; color: #e9bf8f; margin-top: 4px; }
+    h1 { font-family: var(--f-display); font-weight: 800; font-size: 30px; margin: 2px 0 4px; letter-spacing: -.02em; }
+    header p { margin: 0; color: rgba(255,255,255,.78); font-size: 14px; }
+    main.wrap { padding-top: 16px; padding-bottom: calc(env(safe-area-inset-bottom) + 40px); display: grid; gap: 14px; }
+    section { background: var(--surface); border-radius: 20px; padding: 16px 18px; box-shadow: 0 1px 1px rgba(16,24,48,.04), 0 6px 18px rgba(16,24,48,.07); }
+    h2 { font-family: var(--f-display); font-weight: 700; font-size: 19px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+    h2 .tag { font-family: var(--f-body); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--gold-soft); color: var(--gold); padding: 2px 8px; border-radius: 99px; }
+    .mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--line); padding: 3px; border-radius: 12px; margin-bottom: 14px; }
+    .mode button { font: 600 14px var(--f-body); border: 0; background: transparent; color: var(--muted); padding: 9px 4px; border-radius: 10px; cursor: pointer; }
+    .mode button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+    .field { display: flex; gap: 6px; }
+    input[type=number] { flex: 1; min-width: 0; font: 600 20px var(--f-num); padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); -webkit-appearance: none; appearance: none; }
+    input:focus, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+    .unit { font: 600 14px var(--f-body); border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 12px; padding: 0 10px; cursor: pointer; min-width: 52px; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .kv { background: var(--bg); border-radius: 14px; padding: 10px 12px; }
+    .kv span { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
+    .kv b { font: 700 22px var(--f-num); font-variant-numeric: tabular-nums; }
+    .kv small { font-size: 12px; color: var(--muted); display: block; }
+    .saw { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
+    .sawview { width: 100%; height: auto; display: block; margin: 8px 0 4px; background: var(--bg); border-radius: 12px; }
+    .sides { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+    .sides div { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+    .sides button { font: 600 12px var(--f-body); border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 8px; cursor: pointer; flex: 1; }
+    .sides button[aria-pressed="true"] { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .setting { border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+    .setting h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+    .setting .row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-top: 1px dashed var(--line); }
+    .setting .row:first-of-type { border-top: 0; }
+    .setting .row em { font-style: normal; color: var(--muted); font-size: 14px; }
+    .setting .row b { font: 700 20px var(--f-num); }
+    .flag { font-size: 12px; font-weight: 600; margin-top: 8px; padding: 6px 8px; border-radius: 8px; }
+    .flag.ko { background: var(--warn-soft); color: var(--warn); }
+    .flag.okk { color: var(--ok); }
+    .plan { width: 100%; height: auto; display: block; }
+    .note { font-size: 14px; color: var(--muted); }
+    .note p { margin: 6px 0; }
+    .garder { display: block; width: 100%; margin-top: 14px; padding: 14px; border: none; border-radius: 14px; font: 700 16px var(--f-body); background: var(--gold-soft); color: var(--navy); cursor: pointer; }
+    @media (prefers-color-scheme: dark) { .garder { color: #f5f5f7; } }
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+  </style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <button id="retour" class="retour">‹ Calculs</button>
+  <div class="brand">Charpente du Léon</div>
+  <h1>Arêtier &amp; noue</h1>
+  <p>Pentes, délardement et réglages de la DeWalt DWS780 pour l'arêtier et les empannons. Marche sans réseau.</p>
+</div></header>
+
+<main class="wrap">
+  <section aria-labelledby="t-in">
+    <h2 id="t-in">Relevés</h2>
+    <div class="mode" role="group" aria-label="Type de pièce">
+      <button id="m-aret" aria-pressed="true">Arêtier</button>
+      <button id="m-noue" aria-pressed="false">Noue</button>
+    </div>
+    <div class="grid">
+      <div><label for="p1">Pente pan 1</label>
+        <div class="field"><input id="p1" type="number" inputmode="decimal" step="0.1" value="40"><button class="unit" id="u1">°</button></div>
+        <div class="hint" id="h1"></div></div>
+      <div><label for="p2">Pente pan 2</label>
+        <div class="field"><input id="p2" type="number" inputmode="decimal" step="0.1" value="40"><button class="unit" id="u2">°</button></div>
+        <div class="hint" id="h2"></div></div>
+      <div><label for="a">Angle en plan des sablières</label>
+        <div class="field"><input id="a" type="number" inputmode="decimal" step="0.1" value="90"><span class="unit" style="display:grid;place-items:center">°</span></div>
+        <div class="hint">Mesuré à la GAM, 90° pour un angle droit</div></div>
+      <div><label for="h">Hauteur sablière → faîtage</label>
+        <div class="field"><input id="h" type="number" inputmode="decimal" step="0.01" value="2.50"><span class="unit" style="display:grid;place-items:center">m</span></div>
+        <div class="hint">Pour la longueur de l'arêtier</div></div>
+      <div><label for="e">Entraxe empannons</label>
+        <div class="field"><input id="e" type="number" inputmode="decimal" step="1" value="60"><span class="unit" style="display:grid;place-items:center">cm</span></div></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="t-ar">
+    <h2 id="t-ar"><span id="lbl-piece">Arêtier</span> <span class="tag">géométrie</span></h2>
+    <div class="big">
+      <div class="kv"><span>Pente</span><b id="r-phi">–</b><small id="r-phip"></small></div>
+      <div class="kv"><span>Angle en plan / pan 1</span><b id="r-b1">–</b><small>depuis la sablière 1</small></div>
+      <div class="kv"><span>Angle en plan / pan 2</span><b id="r-b2">–</b><small>depuis la sablière 2</small></div>
+      <div class="kv"><span>Délardement côté pan 1</span><b id="r-d1">–</b><small id="r-d1s"></small></div>
+      <div class="kv"><span>Délardement côté pan 2</span><b id="r-d2">–</b><small id="r-d2s"></small></div>
+      <div class="kv"><span>Longueur vraie</span><b id="r-L">–</b><small id="r-Lp"></small></div>
+    </div>
+    <div class="saw" id="ar-saw"></div>
+    <button id="garder" class="garder">📌 Garder ce calcul dans un chantier</button>
+  </section>
+
+  <section aria-labelledby="t-pied">
+    <h2 id="t-pied">Pied sur sablière <span class="tag">entaille &amp; débord</span></h2>
+    <div class="mode" role="group" aria-label="Pièce" style="grid-template-columns:1fr 1fr 1fr">
+      <button class="pc" data-pc="c1" aria-pressed="true">Chevron pan 1</button>
+      <button class="pc" data-pc="c2" aria-pressed="false">Chevron pan 2</button>
+      <button class="pc" data-pc="ar" aria-pressed="false" id="pc-ar">Arêtier</button>
+    </div>
+    <div class="grid">
+      <div><label for="sw">Sablière à plat : largeur</label>
+        <div class="field"><input id="sw" type="number" inputmode="decimal" step="1" value="150"><span class="unit" style="display:grid;place-items:center">mm</span></div></div>
+      <div><label for="sh">Sablière : hauteur</label>
+        <div class="field"><input id="sh" type="number" inputmode="decimal" step="1" value="50"><span class="unit" style="display:grid;place-items:center">mm</span></div></div>
+      <div><label for="hc">Hauteur chevrons / arbalétriers</label>
+        <div class="field"><input id="hc" type="number" inputmode="decimal" step="1" value="150"><span class="unit" style="display:grid;place-items:center">mm</span></div></div>
+      <div><label for="ha">Hauteur de l'arêtier / noue</label>
+        <div class="field"><input id="ha" type="number" inputmode="decimal" step="1" value="200"><span class="unit" style="display:grid;place-items:center">mm</span></div></div>
+    </div>
+    <div class="mode" role="group" aria-label="Débord" style="margin-top:14px">
+      <button class="db" data-db="1" aria-pressed="true">Avec débord</button>
+      <button class="db" data-db="0" aria-pressed="false">Sans débord</button>
+    </div>
+    <div class="grid" id="deb-in">
+      <div><label for="dd">Débord des chevrons (le long de la pièce)</label>
+        <div class="field"><input id="dd" type="number" inputmode="decimal" step="1" value="60"><span class="unit" style="display:grid;place-items:center">cm</span></div>
+        <div class="hint">Depuis le nu extérieur de la sablière, sous la pièce. L'arêtier est recalculé pour tomber au même alignement.</div></div>
+      <div><label>Coupe d'about</label>
+        <div class="mode" role="group" style="margin:0">
+          <button class="ab" data-ab="ap" aria-pressed="true">Aplomb</button>
+          <button class="ab" data-ab="an" aria-pressed="false">Aplomb + niveau</button>
+        </div></div>
+      <div id="ab-a" hidden><label for="aa">Hauteur de l'aplomb d'about</label>
+        <div class="field"><input id="aa" type="number" inputmode="decimal" step="1" value="60"><span class="unit" style="display:grid;place-items:center">mm</span></div></div>
+    </div>
+    <svg class="plan" id="foot" viewBox="0 0 320 200" role="img" aria-label="Profil du pied sur la sablière" style="margin-top:14px;background:var(--bg);border-radius:12px"></svg>
+    <div class="big" id="foot-kv" style="margin-top:12px"></div>
+    <div class="saw" id="foot-saw"></div>
+    <p class="hint" id="foot-note" style="margin-top:10px"></p>
+  </section>
+
+  <section aria-labelledby="t-e1">
+    <h2 id="t-e1">Empannons pan 1 <span class="tag">DWS780</span></h2>
+    <div class="big">
+      <div class="kv"><span>Écart de longueur par entraxe</span><b id="e1-dl">–</b><small>longueur vraie, d'un empannon au suivant</small></div>
+    </div>
+    <div class="saw" id="e1-saw"></div>
+  </section>
+
+  <section aria-labelledby="t-e2">
+    <h2 id="t-e2">Empannons pan 2 <span class="tag">DWS780</span></h2>
+    <div class="big">
+      <div class="kv"><span>Écart de longueur par entraxe</span><b id="e2-dl">–</b><small>longueur vraie, d'un empannon au suivant</small></div>
+    </div>
+    <div class="saw" id="e2-saw"></div>
+  </section>
+
+  <section aria-labelledby="t-plan">
+    <h2 id="t-plan">Vue en plan</h2>
+    <svg class="plan" id="plan" viewBox="0 0 320 220" role="img" aria-label="Plan des sablières et de l'arêtier"></svg>
+  </section>
+
+  <section class="note" aria-labelledby="t-n">
+    <h2 id="t-n">Comment lire les résultats</h2>
+    <p><b>Onglet</b> : rotation du plateau. <b>Inclinaison</b> : bascule de la tête. Limites DWS780 : inclinaison 49° des deux côtés, onglet 60° à droite et 50° à gauche. Le sens gauche/droite dépend de quel côté tu coupes la pièce : fais toujours une coupe d'essai sur une chute.</p>
+    <p><b>À plat</b> : face de dessus du chevron posée sur la table. <b>Sur chant</b> : face de côté sur la table, dessus contre le guide. Choisis la position qui passe dans la capacité de la scie.</p>
+    <p><b>Délardement</b> : angle à raboter sur chaque face de dessus de l'arêtier pour suivre le plan du pan. Pour une noue, c'est la même valeur, en creux.</p>
+    <p>Les empannons sont calculés contre la face d'aplomb de l'arêtier (épaisseur de l'arêtier non déduite : retire la demi-épaisseur mesurée perpendiculairement à la face).</p>
+  </section>
+</main>
+
+<script src="aretier.js"></script>
+</body>
+</html>

@@ -86,7 +86,7 @@
     <div class="actions-rapides">
       <button class="action" data-ouvre="chantier"><span class="tuile t-or">🏗️</span>Photo<br>chantier</button>
       <button class="action" data-ouvre="note"><span class="tuile t-violet">🎙️</span>Note<br>rapide</button>
-      <button class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️</span>Heures<br>du jour</button>
+      <button id="tuile-heures" class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️<b id="tuile-heures-pastille" class="pastille-tuile cache"></b></span><span id="tuile-heures-texte">Heures<br>du jour</span></button>
       <button class="action" data-ouvre="point"><span class="tuile t-bleu">📋</span>Point<br>du jour</button>
     </div>
 
@@ -99,12 +99,6 @@
       <div class="carte-entete"><h2>Prochains rendez-vous</h2></div>
       <ul id="agenda-liste" class="liste-simple"><li class="squelette" style="height:40px"></li></ul>
     </section>
-
-    <button id="carte-heures" class="carte carte-bouton">
-      <span class="carte-bouton-ico tuile t-vert">⏱️</span>
-      <span class="carte-bouton-texte"><strong>Heures du jour</strong><small id="accueil-heures">Pas encore pointées</small></span>
-      <span class="chevron">›</span>
-    </button>
 
     <section id="carte-taches" class="carte">
       <div class="carte-entete"><h2>À faire</h2><button class="lien" data-onglet-vers="taches">Tout voir</button></div>
@@ -123,16 +117,15 @@
   <!-- ===================== CHANTIERS ===================== -->
   <section id="ecran-chantiers" class="ecran onglet cache" data-onglet="chantiers">
     <header class="titre-page"><h1>Chantiers</h1></header>
-    <div class="recherche">
-      <input id="chantiers-recherche" type="search" placeholder="Chercher un chantier ou un client" autocomplete="off">
+    <div class="recherche ligne-recherche">
+      <input id="chantiers-recherche" type="search" placeholder="Chantier ou client…" autocomplete="off">
+      <button id="btn-pres-de-moi" class="btn-pres" aria-label="Trier par distance">📍</button>
     </div>
-    <div id="filtres-statut" class="puces defilant">
-      <button class="puce active" data-statut="">Tous</button>
-      <button class="puce" data-statut="En cours">En cours</button>
-      <button class="puce" data-statut="Devis accepté">Devis accepté</button>
-      <button class="puce" data-statut="Devis en attente">Devis en attente</button>
-      <button class="puce" data-statut="Finalisé">Finalisés</button>
-      <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
+    <!-- Trois rubriques, comme on parle d'un chantier : en cours, à venir, terminé. -->
+    <div id="onglets-chantiers" class="segment segment-chantiers" role="tablist">
+      <button role="tab" data-groupe="en-cours" class="active">En cours</button>
+      <button role="tab" data-groupe="a-venir">À venir</button>
+      <button role="tab" data-groupe="termines">Terminés</button>
     </div>
     <ul id="chantiers-liste" class="liste-cartes"></ul>
   </section>
@@ -154,7 +147,7 @@
       <a id="fiche-drive" class="bouton-rond" target="_blank" rel="noopener"><span>📁</span>Dossier</a>
     </div>
 
-    <div id="fiche-statut" class="segment"></div>
+    <div id="fiche-statut" class="statut-fiche"></div>
 
     <details id="fiche-infos" class="carte depliant">
       <summary>Infos du chantier</summary>
@@ -344,7 +337,7 @@
         <span class="nav-mois"><button id="recap-avant" class="lien" aria-label="Mois précédent">‹</button><span id="recap-mois"></span><button id="recap-apres" class="lien" aria-label="Mois suivant">›</button></span>
       </div>
       <ul id="recap-liste" class="resultats"></ul>
-      <button id="btn-copier-recap" class="btn secondaire">📋 Copier le récap pour Nelly</button>
+      <button id="btn-copier-recap" class="btn secondaire">📋 Copier le récap pour la paie</button>
     </section>
     <button id="btn-equipe" class="btn secondaire">👷 Équipe et coûts horaires</button>
   </section>
@@ -353,7 +346,7 @@
   <section id="ecran-equipe" class="ecran cache" data-onglet="plus">
     <button class="retour" id="equipe-retour">‹ Heures</button>
     <header class="titre-page compact"><h1>Équipe</h1>
-      <p class="discret">Coût horaire chargé de chacun (salaire + charges, Nelly peut te le donner). Il sert à calculer la rentabilité.</p></header>
+      <p class="discret">Coût horaire chargé de chacun (salaire + charges, le cabinet qui fait la paie peut te le donner). Il sert à calculer la rentabilité.</p></header>
     <div id="equipe-liste"></div>
     <button id="btn-ajouter-compagnon" class="btn secondaire">＋ Ajouter quelqu'un</button>
     <button id="btn-enregistrer-equipe" class="btn principal">Enregistrer</button>
@@ -379,6 +372,12 @@
     <button class="retour" data-retour>‹ Retour</button>
     <header class="titre-page compact"><h1>Calculs</h1><p class="discret">Marche sans réseau.</p></header>
 
+    <a class="carte carte-bouton lien-outil" href="aretier.html">
+      <span class="carte-bouton-ico tuile t-or">📐</span>
+      <span class="carte-bouton-texte"><strong>Arêtier &amp; noue</strong><small>Délardement, longueur, empannons, pied sur sablière et réglages de la DWS780</small></span>
+      <span class="chevron">›</span>
+    </a>
+
     <section class="carte">
       <h2>Pente</h2>
       <div class="deux-champs">
@@ -396,6 +395,7 @@
         <div class="champ"><label for="calc-long">Long. faîtage (m)</label><input id="calc-long" type="text" inputmode="decimal" placeholder="ex. 12"></div>
       </div>
       <ul id="calc-resultats" class="resultats"></ul>
+      <button id="btn-garder-calcul" class="btn secondaire">📌 Garder ce calcul dans un chantier</button>
     </section>
   </section>
 

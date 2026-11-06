@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -508,8 +508,9 @@ function majEtat() {
   const etat = $('#etat');
   if (!reglages.ok()) { etat.textContent = 'À appairer : Plus › Réglages'; etat.className = 'etat hors'; }
   else if (!navigator.onLine) { etat.textContent = 'Hors ligne : tout est gardé et partira plus tard'; etat.className = 'etat hors'; }
-  else { etat.textContent = 'Connecté'; etat.className = 'etat ok'; }
+  else { etat.textContent = resumeMeteo || 'Connecté'; etat.className = resumeMeteo ? 'etat meteo-resume' : 'etat ok'; }
 }
+let resumeMeteo = '';
 
 // ===================== Dates =====================
 function quandLisible(ms) {
@@ -582,7 +583,8 @@ function rafraichirAccueil() {
   const maintenant = new Date();
   $('#accueil-date').textContent = maintenant.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const h = maintenant.getHours();
-  $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
+  // Trait d'union insécable : « Jean‑Phi » ne se coupe jamais en deux lignes.
+  $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean‑Phi' : 'Bonsoir Jean‑Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
   majBandeauFaceId();
   majEnvois();
@@ -673,6 +675,15 @@ function dessinerMeteo({ lieu, m, quand: majMeteo }) {
         el('div', {}, `${libelle} · ${Math.round(m.daily.temperature_2m_min[0])}° / ${Math.round(m.daily.temperature_2m_max[0])}°`),
         el('div', {}, `Vent ${Math.round(m.current.wind_speed_10m)} km/h · rafales ${Math.round(m.current.wind_gusts_10m)} km/h`),
         el('div', {}, texteDePluie))));
+  // Résumé d'une ligne pour l'en-tête : ce qui compte en ouvrant l'appli le matin.
+  const premiereForte = reste.find((h) => h.rafale >= SEUIL_RAFALES);
+  const soir = new Date().getHours() >= 18;
+  resumeMeteo = `${ico} ${Math.round(m.current.temperature_2m)}° · ${soir
+    ? (demainRafales >= SEUIL_RAFALES ? `demain rafales ${demainRafales} km/h` : 'demain vent calme pour lever')
+    : premiereForte
+      ? `rafales ${Math.round(pic.rafale)} km/h ${premiereForte.t <= maintenant ? 'en ce moment' : `dès ${new Date(premiereForte.t).getHours()} h`}`
+      : 'vent calme pour lever'}`;
+  majEtat();
   if (pic && pic.rafale >= SEUIL_RAFALES) {
     const h = new Date(pic.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     bloc.append(el('div', { class: 'alerte' }, `⚠️ Rafales jusqu'à ${Math.round(pic.rafale)} km/h vers ${h} : levage déconseillé`));
@@ -681,8 +692,36 @@ function dessinerMeteo({ lieu, m, quand: majMeteo }) {
   } else {
     bloc.append(el('div', { class: 'alerte ok' }, `✓ Vent calme pour le levage aujourd'hui (demain rafales ${demainRafales} km/h)`));
   }
+  bloc.append(bandeRafales(heures));
   bloc.append(el('p', { class: 'source-meteo' }, `Météo-France · mise à jour à ${new Date(majMeteo).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`));
   $('#meteo-contenu').replaceWith(bloc);
+}
+
+// Bande des rafales de 7 h à 19 h, heure par heure : on voit d'un coup d'œil le créneau pour lever.
+// Après 18 h, c'est la journée de demain qui s'affiche. Vert sous 35 km/h, orange jusqu'au seuil, rouge au-delà.
+const RAFALES_ORANGE = 35;
+function bandeRafales(heures) {
+  const maintenant = new Date();
+  const jourVu = new Date(maintenant);
+  if (maintenant.getHours() >= 18) jourVu.setDate(jourVu.getDate() + 1);
+  const debut = new Date(jourVu); debut.setHours(7, 0, 0, 0);
+  const fin = new Date(jourVu); fin.setHours(19, 0, 0, 0);
+  const plage = heures.filter((h) => h.t >= debut.getTime() && h.t <= fin.getTime());
+  if (!plage.length) return el('span');
+  const max = Math.max(SEUIL_RAFALES + 10, ...plage.map((h) => h.rafale));
+  const heureCourante = maintenant.getHours();
+  const barres = plage.map((h) => {
+    const heure = new Date(h.t).getHours();
+    const niveau = h.rafale >= SEUIL_RAFALES ? 'rouge' : h.rafale >= RAFALES_ORANGE ? 'orange' : 'vert';
+    const passee = jourVu.toDateString() === maintenant.toDateString() && heure < heureCourante;
+    return el('div', { class: `rafale ${niveau}${passee ? ' passee' : ''}`, title: `${heure} h : rafales ${Math.round(h.rafale)} km/h` },
+      el('span', { class: 'barre', style: `height:${Math.max(8, Math.round((h.rafale / max) * 100))}%` }),
+      el('small', {}, heure % 2 ? '' : `${heure}h`));
+  });
+  const titre = jourVu.toDateString() === maintenant.toDateString() ? 'Rafales aujourd\'hui' : 'Rafales demain';
+  return el('div', { class: 'bande-rafales', role: 'img', 'aria-label': `${titre} : ${plage.map((h) => `${new Date(h.t).getHours()} h ${Math.round(h.rafale)}`).join(', ')} km/h` },
+    el('div', { class: 'bande-titre' }, el('span', {}, titre), el('span', { class: 'legende' }, el('i', { class: 'vert' }), 'levage', el('i', { class: 'rouge' }), `≥ ${SEUIL_RAFALES} km/h`)),
+    el('div', { class: 'barres' }, ...barres));
 }
 
 // --- Agenda ---
@@ -1088,7 +1127,14 @@ function remplirSelectChantiers(select, choisi, premier) {
   select.replaceChildren(...options);
 }
 
-let filtreStatut = '';
+// Rubriques des chantiers : « À venir » regroupe les devis signés et ceux qui attendent une réponse.
+const GROUPES_CHANTIERS = {
+  'en-cours': [['En cours', '']],
+  'a-venir': [['Devis accepté', 'Signés, à démarrer'], ['Devis en attente', 'Devis envoyés, en attente de réponse']],
+  termines: [['Finalisé', '']],
+};
+let groupeChantiers = lire('onglet-chantiers', 'en-cours');
+if (!GROUPES_CHANTIERS[groupeChantiers]) groupeChantiers = 'en-cours';
 let triDistance = false;
 
 async function ouvrirChantiers() {
@@ -1103,42 +1149,77 @@ const couleurDe = (texte) => COULEURS[[...texte].reduce((s, c) => s + c.charCode
 const initiales = (nom) => nom.split(/[\s-]+/).filter((m) => /^[A-Za-zÀ-ÿ]/.test(m)).slice(0, 2).map((m) => m[0].toUpperCase()).join('');
 const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'devis-attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
 
-// « Tous » montre tout sauf les chantiers finalisés, qui ont leur propre onglet.
-const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : statutDe(c.statut) !== 'Finalisé');
+const groupeDe = (statut) => Object.keys(GROUPES_CHANTIERS).find((g) => GROUPES_CHANTIERS[g].some(([s]) => s === statut)) || 'en-cours';
 
-function majCompteursStatut() {
+// Dernier jour pointé sur chaque chantier : le chantier où l'équipe était hier remonte en tête.
+function derniersPointages() {
+  const d = {};
+  for (const h of toutesHeures()) if (!d[h.chantier] || h.date > d[h.chantier]) d[h.chantier] = h.date;
+  return d;
+}
+
+function depuisLisible(iso) {
+  const n = Math.round((dateDeIso(jourIso(new Date())) - dateDeIso(iso)) / 864e5);
+  return n <= 0 ? 'pointé aujourd\'hui' : n === 1 ? 'pointé hier' : `pointé il y a ${n} j`;
+}
+
+function majCompteursChantiers() {
   const liste = listeChantiers();
-  for (const b of $$('#filtres-statut [data-statut]')) {
+  for (const b of $$('#onglets-chantiers [data-groupe]')) {
     if (!b.dataset.libelle) b.dataset.libelle = b.textContent;
-    const n = liste.filter((c) => dansFiltre(c, b.dataset.statut)).length;
-    b.textContent = liste.length ? `${b.dataset.libelle} · ${n}` : b.dataset.libelle;
+    const n = liste.filter((c) => groupeDe(statutDe(c.statut)) === b.dataset.groupe).length;
+    b.replaceChildren(b.dataset.libelle, liste.length ? el('span', { class: 'compte' }, String(n)) : '');
+    b.classList.toggle('active', b.dataset.groupe === groupeChantiers);
+    b.setAttribute('aria-selected', String(b.dataset.groupe === groupeChantiers));
   }
 }
 
+function carteChantier(c, avecStatut, pointages) {
+  const infos = [c.client];
+  if (pointages[c.nom] && c.statut === 'En cours') infos.push(depuisLisible(pointages[c.nom]));
+  return el('li', { class: classeStatut(c.statut) },
+    el('button', { onclick: () => ouvrirFiche(c.nom) },
+      el('span', { class: 'avatar', style: `background:${couleurDe(c.nom)}` }, initiales(c.nom) || '🏗️'),
+      el('span', { class: 'corps' }, el('div', { class: 'nom' }, c.nom), el('div', { class: 'info' }, infos.filter(Boolean).join(' · ') || ' ')),
+      el('span', { class: 'droite' },
+        avecStatut ? el('span', { class: `statut ${classeStatut(c.statut)}` }, STATUTS_COURTS[c.statut] || c.statut) : null,
+        c.distance != null ? el('span', { class: 'dist' }, distanceLisible(c.distance)) : null,
+        el('span', { class: 'chevron-liste' }, '›'))));
+}
+
 function dessinerChantiers() {
-  majCompteursStatut();
+  majCompteursChantiers();
   const filtre = $('#chantiers-recherche').value.trim().toLowerCase();
   const pos = triDistance ? dernierePosition : null;
+  const pointages = derniersPointages();
+  // En cherchant, on fouille toutes les rubriques (le statut s'affiche alors sur chaque carte).
   const elements = listeChantiers()
     .map((c) => ({ ...c, statut: statutDe(c.statut) }))
-    .filter((c) => dansFiltre(c, filtreStatut))
-    .filter((c) => !filtre || `${c.nom} ${c.client}`.toLowerCase().includes(filtre))
-    .map((c) => ({ ...c, distance: pos && c.lat != null ? distanceM(pos.lat, pos.lon, c.lat, c.lon) : null }));
-  if (pos) elements.sort((a, b) => (a.distance ?? 1e12) - (b.distance ?? 1e12));
+    .filter((c) => (filtre ? `${c.nom} ${c.client}`.toLowerCase().includes(filtre) : groupeDe(c.statut) === groupeChantiers))
+    .map((c) => ({ ...c, distance: pos && c.lat != null ? distanceM(pos.lat, pos.lon, c.lat, c.lon) : null }))
+    .sort((a, b) => (pos ? (a.distance ?? 1e12) - (b.distance ?? 1e12) : 0)
+      || (pointages[b.nom] || '').localeCompare(pointages[a.nom] || '')
+      || a.nom.localeCompare(b.nom, 'fr'));
+  $('#onglets-chantiers').classList.toggle('estompe', !!filtre);
 
   const ul = $('#chantiers-liste');
   if (!elements.length) {
+    const vides = { 'en-cours': 'Aucun chantier en cours.', 'a-venir': 'Rien à venir pour l\'instant.', termines: 'Aucun chantier terminé.' };
     ul.replaceChildren(el('li', { class: 'etat-vide' }, el('span', {}, '🏗️'),
-      !reglages.ok() ? 'Connecte d\'abord le serveur (Plus › Réglages).' : filtre || filtreStatut ? 'Aucun chantier ne correspond.' : 'Aucun chantier pour l\'instant.'));
+      !reglages.ok() ? 'Connecte d\'abord le serveur (Plus › Réglages).' : filtre ? 'Aucun chantier ne correspond.' : vides[groupeChantiers]));
     return;
   }
-  ul.replaceChildren(...elements.map((c) => el('li', { class: classeStatut(c.statut) },
-    el('button', { onclick: () => ouvrirFiche(c.nom) },
-      el('span', { class: 'avatar', style: `background:${couleurDe(c.nom)}` }, initiales(c.nom) || '🏗️'),
-      el('span', { class: 'corps' }, el('div', { class: 'nom' }, c.nom), el('div', { class: 'info' }, c.client || ' ')),
-      el('span', { class: 'droite' },
-        c.statut ? el('span', { class: `statut ${classeStatut(c.statut)}` }, c.statut) : null,
-        c.distance != null ? el('span', { class: 'dist' }, distanceLisible(c.distance)) : null)))));
+  if (filtre) { ul.replaceChildren(...elements.map((c) => carteChantier(c, true, pointages))); return; }
+  // Sous-titres seulement quand la rubrique en a plusieurs (« À venir »).
+  const sections = GROUPES_CHANTIERS[groupeChantiers];
+  const enfants = [];
+  for (const [statut, titre] of sections) {
+    const duStatut = elements.filter((c) => c.statut === statut);
+    if (!duStatut.length) continue;
+    if (titre) enfants.push(el('li', { class: 'titre-groupe' }, titre, el('span', {}, String(duStatut.length))));
+    enfants.push(...duStatut.map((c) => carteChantier(c, false, pointages)));
+  }
+  ul.replaceChildren(...enfants);
 }
 
 let ficheCourante = null;
@@ -1178,8 +1259,10 @@ function dessinerFiche(f) {
   itin.classList.toggle('cache', f.lat == null && !f.adresse);
   if (f.lat != null || f.adresse) itin.href = `https://maps.apple.com/?daddr=${f.lat != null ? `${f.lat},${f.lon}` : encodeURIComponent(f.adresse)}`;
 
-  $('#fiche-statut').replaceChildren(...STATUTS.map((s) =>
-    el('button', { class: s === statutDe(f.statut) ? 'active' : '', 'data-statut': s, onclick: () => changerStatut(s) }, STATUTS_COURTS[s])));
+  // Le statut vient de ProGBat, qui fait foi : l'appli l'affiche, elle ne le change pas.
+  const st = statutDe(f.statut);
+  $('#fiche-statut').replaceChildren(el('span', { class: 'discret' }, 'Statut dans ProGBat'),
+    el('span', { class: `statut ${classeStatut(st)}` }, st));
   $('#fiche-client').value = f.client || '';
   $('#fiche-tel').value = f.telephone || '';
   $('#fiche-adresse').value = f.adresse || '';
@@ -1247,7 +1330,6 @@ async function changerStatut(statut) {
   if (!ficheCourante?.nom) return;
   const nom = ficheCourante.nom;
   ficheCourante.statut = statut;
-  for (const b of $$('#fiche-statut button')) b.classList.toggle('active', b.dataset.statut === statut);
   const liste = listeChantiers();
   const c = liste.find((x) => x.nom === nom);
   if (c) c.statut = statut;
@@ -1352,10 +1434,22 @@ function dessinerTaches(taches) {
       setTimeout(majTachesAffichage, 700);
       await mettreEnFile([{ action: 'majTache', ligne: t.ligne || 0, texte: t.texte, statut: 'Fait' }]);
     };
+    const age = ageTache(t.date);
+    if (age !== null && age >= 7) li.classList.add('ancienne');
     li.append(caseBtn, el('div', {}, el('div', { class: 'texte' }, t.texte),
-      el('small', {}, [t.chantier, t.date, t.locale ? '⏳ en attente d\'envoi' : ''].filter(Boolean).join(' · '))));
+      el('small', {},
+        t.chantier ? el('span', { class: 'puce-chantier' }, t.chantier) : null,
+        [age === null ? t.date : age === 0 ? 'aujourd\'hui' : age === 1 ? 'hier' : `il y a ${age} jours`, t.locale ? '⏳ en attente d\'envoi' : ''].filter(Boolean).join(' · '))));
     return li;
   }));
+}
+
+// Âge d'une tâche en jours, d'après sa date « 05/11/2026 » (ou une date ISO). null si illisible.
+function ageTache(date) {
+  const m = String(date || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/) || String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const d = m[0].includes('/') ? new Date(+m[3], m[2] - 1, +m[1], 12) : new Date(+m[1], m[2] - 1, +m[3], 12);
+  return Math.max(0, Math.round((dateDeIso(jourIso(new Date())) - d) / 864e5));
 }
 
 async function ajouterTache() {
@@ -1413,9 +1507,38 @@ function chargerPoint() {
       return;
     }
     $('#point-date').textContent = `${p.sujet} · ${quandLisible(p.date)}`;
-    $('#point-contenu').textContent = p.texte;
+    $('#point-contenu').replaceChildren(...mettreEnFormePoint(p.texte));
   });
   if (!navigator.onLine || !reglages.ok()) $('#btn-actualiser-point').textContent = 'Actualiser';
+}
+
+// Le point arrive en texte brut (mail du matin). On le découpe en rubriques lisibles :
+// une ligne qui commence par un emoji et ne finit pas par un point devient un titre, les « • » et « - » une liste.
+// Tout reste du texte (jamais de HTML venu du serveur).
+const DEBUT_EMOJI = /^\p{Extended_Pictographic}/u;
+function mettreEnFormePoint(texte) {
+  const blocs = [];
+  let liste = null;
+  let rubrique = null;
+  const ajouter = (noeud) => (rubrique || { append: (n) => blocs.push(n) }).append(noeud);
+  for (const brute of String(texte || '').split(/\r?\n/)) {
+    const ligne = brute.trim();
+    if (!ligne) { liste = null; continue; }
+    const puce = ligne.match(/^[•\-–*]\s+(.*)$/);
+    if (puce) {
+      if (!liste) { liste = el('ul', { class: 'point-liste' }); ajouter(liste); }
+      liste.append(el('li', {}, puce[1]));
+      continue;
+    }
+    liste = null;
+    if (DEBUT_EMOJI.test(ligne) && ligne.length < 60 && !/[.:]$/.test(ligne) && !/[.!?]\s/.test(ligne)) {
+      rubrique = el('section', { class: 'point-rubrique' }, el('h3', {}, ligne));
+      blocs.push(rubrique);
+      continue;
+    }
+    ajouter(el('p', {}, ligne));
+  }
+  return blocs.length ? blocs : [el('p', {}, String(texte || ''))];
 }
 
 // ===================== Demander à Claude =====================
@@ -1544,15 +1667,18 @@ function chargerHeures(ensuite) {
   });
 }
 
+// La tuile « Heures » de l'accueil dit tout : ✓ et le total une fois pointé, pastille orange à partir de 16 h sinon.
 function majAccueilHeures() {
   const auj = heuresDuJour(jourIso(new Date()));
   const total = auj.reduce((s, h) => s + h.heures, 0);
-  const personnes = new Set(auj.map((h) => h.compagnon)).size;
-  const chantiers = [...new Set(auj.map((h) => h.chantier))];
-  $('#accueil-heures').textContent = auj.length
-    ? `${personnes} personne${personnes > 1 ? 's' : ''} · ${heuresLisibles(total)} · ${chantiers.slice(0, 2).join(', ')}${chantiers.length > 2 ? '…' : ''}`
-    : new Date().getHours() >= 16 ? 'Pas encore pointées : touche pour pointer' : 'Pas encore pointées';
-  $('#carte-heures').classList.toggle('a-faire', !auj.length && new Date().getHours() >= 16);
+  const aPointer = !auj.length && new Date().getHours() >= 16;
+  const texte = $('#tuile-heures-texte');
+  texte.replaceChildren(...(auj.length ? [heuresLisibles(total), el('br'), 'pointées'] : ['Heures', el('br'), 'du jour']));
+  const pastille = $('#tuile-heures-pastille');
+  pastille.textContent = auj.length ? '✓' : '!';
+  pastille.className = `pastille-tuile${auj.length ? ' ok' : aPointer ? '' : ' cache'}`;
+  $('#tuile-heures').classList.toggle('a-faire', aPointer);
+  $('#tuile-heures').setAttribute('aria-label', auj.length ? `Heures du jour : ${heuresLisibles(total)} pointées` : 'Heures du jour : pas encore pointées');
   majJournee();
 }
 
@@ -1703,7 +1829,7 @@ function dessinerSemaine() {
   $('#heures-semaine-total').textContent = totalSemaine ? `${heuresLisibles(totalSemaine)} au total` : '';
 }
 
-// --- Récap du mois (pour la paie, Nelly) ---
+// --- Récap du mois (pour la paie : COGEP jusqu'à octobre 2026, C2C Conseils ensuite) ---
 const recapCache = {}; // mois plus anciens que 3 mois, lus à la demande
 
 async function heuresDuMois(mois) {
@@ -1757,7 +1883,7 @@ async function dessinerRecap() {
   pointage.recap = { mois, heures, noms };
 }
 
-// Texte pour Nelly (COGEP) : total et détail jour par jour de chaque compagnon.
+// Texte pour le cabinet qui fait la paie : total et détail jour par jour de chaque compagnon.
 async function copierRecap() {
   const r = pointage.recap;
   if (!r) return;
@@ -1773,7 +1899,7 @@ async function copierRecap() {
   }
   try {
     await navigator.clipboard.writeText(lignes.join('\n'));
-    toast('Récap copié : colle-le dans un mail à Nelly.', 'ok');
+    toast('Récap copié : colle-le dans un mail au cabinet (paie).', 'ok');
   } catch {
     toast('Copie impossible sur cet appareil.', 'erreur');
   }
@@ -1931,6 +2057,30 @@ function calculerRampant() {
     lignes.push(['Surface couverture (2 pans)', `${fr(surface, 1)} m²`], ['Avec 10 % de chutes', `${fr(surface * 1.1, 1)} m²`]);
   }
   ul.replaceChildren(...lignes.map(([a, b]) => el('li', {}, el('span', {}, a), el('b', {}, b))));
+}
+
+// Garder un calcul : il part en note « Info » dans le chantier choisi, comme une note dictée.
+// Rien ne se perd, et on le retrouve dans la fiche du chantier.
+function resumeCalculs() {
+  const lignes = ['Calcul de charpente'];
+  const champs = [['#calc-portee', 'Portée', 'm'], ['#calc-pente', 'Pente', '°'], ['#calc-debord', 'Débord', 'm'], ['#calc-long', 'Long. faîtage', 'm']];
+  const saisies = champs.filter(([sel]) => nombre(sel) !== null).map(([sel, t, u]) => `${t} ${fr(nombre(sel), u === '°' ? 1 : 2)} ${u}`);
+  if (saisies.length) lignes.push(saisies.join(' · '));
+  for (const li of $$('#calc-resultats li')) {
+    const [a, b] = [...li.children].map((x) => x.textContent);
+    if (a && b) lignes.push(`${a} : ${b}`);
+  }
+  return lignes.length > 2 ? lignes.join('\n') : '';
+}
+
+function ouvrirNoteCalcul(texte) {
+  ouvrirNote();
+  $('#note-texte').value = texte;
+  typeNote = 'Info';
+  for (const b of $$('#types-note .puce')) b.classList.toggle('active', b.dataset.type === typeNote);
+  // Liste des chantiers à jour, sans perdre un choix déjà fait.
+  rafraichirChantiers().then(() => remplirSelectChantiers($('#note-chantier'), $('#note-chantier').value, '— Aucun —'));
+  toast('Choisis le chantier, puis Enregistrer.');
 }
 
 // ===================== Réglages et autorisations =====================
@@ -2177,23 +2327,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Chantiers
   $('#chantiers-recherche').oninput = dessinerChantiers;
-  for (const b of $$('#filtres-statut [data-statut]')) {
+  for (const b of $$('#onglets-chantiers [data-groupe]')) {
     b.onclick = () => {
-      filtreStatut = b.dataset.statut;
-      for (const x of $$('#filtres-statut [data-statut]')) x.classList.toggle('active', x === b);
+      groupeChantiers = b.dataset.groupe;
+      ecrire('onglet-chantiers', groupeChantiers);
+      $('#chantiers-recherche').value = '';
       dessinerChantiers();
     };
   }
   $('#btn-pres-de-moi').onclick = async () => {
     const b = $('#btn-pres-de-moi');
-    if (triDistance) { triDistance = false; b.classList.remove('active'); dessinerChantiers(); return; }
-    b.textContent = '📍 Localisation…';
+    if (triDistance) { triDistance = false; b.classList.remove('active'); dessinerChantiers(); toast('Tri par distance désactivé'); return; }
+    b.classList.add('attente');
     const pos = await obtenirPosition();
-    b.textContent = '📍 Près de moi';
+    b.classList.remove('attente');
     if (!pos) { toast('Position indisponible (autorise la localisation).', 'erreur'); return; }
     triDistance = true;
     b.classList.add('active');
     dessinerChantiers();
+    toast('Chantiers les plus proches en premier 📍');
   };
   $('#fiche-photo').onclick = () => nouveauDocument('chantier', ficheCourante?.nom || '');
   $('#fiche-galerie').onclick = () => ouvrirImport(ficheCourante?.nom || '');
@@ -2209,7 +2361,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Heures, équipe, rentabilité
-  $('#carte-heures').onclick = () => ouvrirHeures();
   $('#heures-avant').onclick = () => changerJour(-1);
   $('#heures-apres').onclick = () => changerJour(1);
   $('#heures-chantier-tous').onchange = (e) => { if (e.target.value) pourTous('chantier', e.target.value); };
@@ -2241,6 +2392,11 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-envoyer-note').onclick = envoyerNote;
 
   // Calculs
+  $('#btn-garder-calcul').onclick = () => {
+    const texte = resumeCalculs();
+    if (!texte) { toast('Renseigne d\'abord la portée et la pente.', 'erreur'); return; }
+    ouvrirNoteCalcul(texte);
+  };
   $('#calc-pct').oninput = () => calculerPente('pct');
   $('#calc-deg').oninput = () => calculerPente('deg');
   for (const id of ['#calc-portee', '#calc-pente', '#calc-debord', '#calc-long']) $(id).oninput = calculerRampant;
@@ -2302,7 +2458,10 @@ async function demarrer() {
   await ouvrirCoffre();
   demarree = true;
   dernierePosition = lireJson('position', null);
+  const calculAGarder = lire('calcul-a-garder');
+  if (calculAGarder) localStorage.removeItem('calcul-a-garder');
   if (lire('bienvenue-ok') !== '1') ouvrirBienvenue();
+  else if (calculAGarder) ouvrirNoteCalcul(calculAGarder);
   else ouvrirOnglet('accueil');
   await appairageAutomatique();
   viderFile();
