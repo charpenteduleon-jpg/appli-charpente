@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -756,7 +756,6 @@ function nouveauDocument(action, chantierChoisi = '', ouvrirAppareil = true) {
   doc.position = null;
   const chantier = action === 'chantier';
   $('#doc-titre').textContent = chantier ? 'Photos de chantier' : 'Nouveau document';
-  $('#btn-ajouter-page').textContent = chantier ? '📷 Prendre une photo' : '📷 Prendre en photo';
   $('#bloc-scan').classList.toggle('cache', chantier);
   $('#bloc-type').classList.toggle('cache', chantier);
   $('#bloc-tampon').classList.toggle('cache', !chantier);
@@ -826,9 +825,17 @@ function dessinerPages() {
     zone.replaceChildren(...doc.pages.map((p, i) => el('div', { class: 'page' },
       p.type === 'pdf' ? el('div', { class: 'pdf' }, `📄\n${p.nom}`) : el('img', { src: p.data, alt: `Page ${i + 1}` }),
       el('span', { class: 'num' }, doc.action === 'chantier' ? `${i + 1}` : `Page ${i + 1}`),
-      el('button', { class: 'suppr', 'aria-label': 'Retirer', onclick: () => { doc.pages.splice(i, 1); dessinerPages(); } }, '×'))));
+      el('button', { class: 'suppr', 'aria-label': 'Retirer', onclick: () => { doc.pages.splice(i, 1); dessinerPages(); } }, '×'))),
+      // Case « + » juste après la dernière page : un doigt pour photographier la page suivante.
+      el('button', { class: 'page-plus', 'aria-label': doc.action === 'chantier' ? 'Ajouter une photo' : 'Ajouter une page',
+        onclick: () => $('#photo-input').click() },
+        el('span', { class: 'plus' }, '+'), doc.action === 'chantier' ? 'Photo' : `Page ${doc.pages.length + 1}`));
   }
   const n = doc.pages.length;
+  const chantier = doc.action === 'chantier';
+  $('#btn-ajouter-page').textContent = n === 0
+    ? (chantier ? '📷 Prendre une photo' : '📷 Prendre en photo')
+    : (chantier ? '📷 Encore une photo' : '📷 Ajouter une page');
   $('#btn-envoyer-doc').disabled = n === 0;
   $('#btn-envoyer-doc').textContent = n > 1 ? `Ajouter (${n} ${doc.action === 'chantier' ? 'photos' : 'pages'})` : 'Ajouter';
 }
