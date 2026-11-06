@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.6.1';
+const VERSION = '1.7.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -482,6 +482,7 @@ function noterEnvoi(envoi, res, probleme = '') {
   const derniers = lireJson('derniers', []);
   derniers.unshift({ libelle, probleme, quand: Date.now() });
   ecrireJson('derniers', derniers.slice(0, NB_DERNIERS));
+  if (!probleme && (envoi.action === 'depot' || envoi.action === 'chantier')) majJournee(true);
 }
 
 async function majEnvois() {
@@ -623,7 +624,7 @@ async function chargerMeteo(demander = false) {
   // surtout pour les rafales. Ils donnent la pluie en millimètres, pas en pourcentage.
   const url = 'https://api.open-meteo.com/v1/forecast?' + new URLSearchParams({
     latitude: lieu.lat.toFixed(4), longitude: lieu.lon.toFixed(4), models: 'meteofrance_seamless',
-    current: 'temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m',
+    current: 'temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m,is_day',
     hourly: 'wind_gusts_10m,precipitation',
     daily: 'wind_gusts_10m_max,temperature_2m_max,temperature_2m_min',
     forecast_days: '2', timezone: 'Europe/Paris',
@@ -645,6 +646,11 @@ async function chargerMeteo(demander = false) {
 function dessinerMeteo({ lieu, m, quand: majMeteo }) {
   const [, ico, libelle] = ciel(m.current.weather_code);
   $('#meteo-lieu').textContent = lieu;
+  // Fond de la carte selon le ciel du moment.
+  const code = m.current.weather_code;
+  $('#carte-meteo').dataset.ciel = m.current.is_day === 0 ? 'nuit'
+    : code >= 95 ? 'orage' : (code >= 51 && code <= 67) || (code >= 80 && code <= 82) ? 'pluie'
+    : (code >= 71 && code <= 77) || code === 85 || code === 86 ? 'neige' : code <= 1 ? 'soleil' : 'nuage';
   const maintenant = Date.now();
   const mm = m.hourly.precipitation || [];
   const heures = m.hourly.time.map((t, i) => ({ t: new Date(t).getTime(), rafale: m.hourly.wind_gusts_10m[i], pluie: mm[i] ?? 0 }));
@@ -1095,7 +1101,7 @@ async function ouvrirChantiers() {
 const COULEURS = ['#1c4587', '#1f9d55', '#e67e22', '#8e44ad', '#c0392b', '#16a085', '#2c3e50', '#d35400'];
 const couleurDe = (texte) => COULEURS[[...texte].reduce((s, c) => s + c.charCodeAt(0), 0) % COULEURS.length];
 const initiales = (nom) => nom.split(/[\s-]+/).filter((m) => /^[A-Za-zÀ-ÿ]/.test(m)).slice(0, 2).map((m) => m[0].toUpperCase()).join('');
-const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
+const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'devis-attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
 
 // « Tous » montre tout sauf les chantiers finalisés, qui ont leur propre onglet.
 const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : statutDe(c.statut) !== 'Finalisé');
@@ -1338,10 +1344,12 @@ function dessinerTaches(taches) {
     const li = el('li', {});
     const caseBtn = el('button', { class: 'case', 'aria-label': 'Marquer comme fait' });
     caseBtn.onclick = async () => {
+      if (caseBtn.classList.contains('cochee')) return;
       caseBtn.classList.add('cochee');
-      li.classList.add('fait');
+      setTimeout(() => li.classList.add('fait'), 350); // le temps de voir la coche rebondir
       ecrireJson('taches-faites', [...tachesFaites(), t.texte]);
-      setTimeout(majTachesAffichage, 300);
+      compterFait();
+      setTimeout(majTachesAffichage, 700);
       await mettreEnFile([{ action: 'majTache', ligne: t.ligne || 0, texte: t.texte, statut: 'Fait' }]);
     };
     li.append(caseBtn, el('div', {}, el('div', { class: 'texte' }, t.texte),
@@ -1417,6 +1425,90 @@ function ouvrirClaude() {
   window.location.href = texte ? `https://claude.ai/new?q=${encodeURIComponent(texte)}` : 'https://claude.ai/new';
 }
 
+// ===================== Ma journée : anneaux, série, fête =====================
+// Trois objectifs simples, comme les anneaux d'activité de l'Apple Watch : les heures pointées, au moins un
+// document ou une photo déposé, et trois choses cochées. Tout est calculé sur le téléphone, sans réseau.
+const OBJECTIF_TACHES = 3;
+const CIRCONF = { 'anneau-heures': 2 * Math.PI * 52, 'anneau-depot': 2 * Math.PI * 39, 'anneau-tache': 2 * Math.PI * 26 };
+
+function faitsDuJour() {
+  const f = lireJson('faits-du-jour', null);
+  return f && f.date === jourIso(new Date()) ? f.n : 0;
+}
+function compterFait() {
+  ecrireJson('faits-du-jour', { date: jourIso(new Date()), n: faitsDuJour() + 1 });
+  majJournee(true);
+}
+
+function depotsDuJour() {
+  const auj = new Date().toDateString();
+  return lireJson('derniers', []).filter((d) => !d.probleme && /^(📄|🏗️)/.test(d.libelle) && new Date(d.quand).toDateString() === auj).length;
+}
+
+// Série : jours ouvrés (lundi à samedi) d'affilée avec des heures pointées, en comptant aujourd'hui s'il l'est.
+function serieDeJours() {
+  const jours = new Set(toutesHeures().map((h) => h.date));
+  let n = 0;
+  let d = new Date();
+  if (!jours.has(jourIso(d))) d.setDate(d.getDate() - 1);
+  for (let i = 0; i < 400; i++) {
+    if (d.getDay() !== 0) {
+      if (!jours.has(jourIso(d))) break;
+      n++;
+    }
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
+function majJournee(celebrer = false) {
+  const progres = {
+    'anneau-heures': heuresDuJour(jourIso(new Date())).length ? 1 : 0,
+    'anneau-depot': Math.min(depotsDuJour(), 1),
+    'anneau-tache': Math.min(faitsDuJour() / OBJECTIF_TACHES, 1),
+  };
+  for (const [id, p] of Object.entries(progres)) {
+    const c = $(`#${id}`);
+    c.style.strokeDasharray = `${CIRCONF[id]}`;
+    c.style.strokeDashoffset = `${CIRCONF[id] * (1 - p)}`;
+  }
+  $('#obj-heures').classList.toggle('fait', progres['anneau-heures'] === 1);
+  $('#obj-depot').classList.toggle('fait', progres['anneau-depot'] === 1);
+  $('#obj-tache').classList.toggle('fait', progres['anneau-tache'] === 1);
+  const n = Math.min(faitsDuJour(), OBJECTIF_TACHES);
+  $('#obj-tache-texte').textContent = n >= OBJECTIF_TACHES ? `${OBJECTIF_TACHES} choses faites` : `${n}/${OBJECTIF_TACHES} choses faites`;
+  const score = Object.values(progres).filter((p) => p === 1).length;
+  $('#anneaux-score').textContent = score === 3 ? '✓' : `${score}/3`;
+
+  const serie = serieDeJours();
+  $('#serie').textContent = serie >= 2 ? `🔥 ${serie} jours pointés d'affilée` : serie === 1 ? '🔥 Série lancée : pointe aussi demain' : 'Pointe ta journée ce soir pour lancer une série 🔥';
+
+  // Journée bouclée : une seule fête par jour.
+  if (score === 3 && celebrer && lire('journee-fetee') !== jourIso(new Date())) {
+    ecrire('journee-fetee', jourIso(new Date()));
+    setTimeout(() => { feter(); toast('Journée bouclée 💪 Bravo Jean-Phi !', 'ok'); }, 400);
+  }
+}
+
+// Petits confettis aux couleurs du logo (pas d'animation si l'iPhone est réglé sur « Réduire les animations »).
+function feter() {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const zone = $('#confettis');
+  const couleurs = ['#d5ac83', '#a88867', '#23376d', '#34c759', '#7fb2ff', '#ffffff'];
+  const morceaux = Array.from({ length: 46 }, () => {
+    const s = el('span');
+    s.style.left = `${Math.random() * 100}%`;
+    s.style.background = couleurs[Math.floor(Math.random() * couleurs.length)];
+    s.style.animationDelay = `${Math.random() * 0.25}s`;
+    s.style.animationDuration = `${1.1 + Math.random() * 0.8}s`;
+    s.style.setProperty('--derive', `${(Math.random() - 0.5) * 160}px`);
+    s.style.setProperty('--tour', `${(Math.random() - 0.5) * 900}deg`);
+    return s;
+  });
+  zone.replaceChildren(...morceaux);
+  setTimeout(() => zone.replaceChildren(), 2300);
+}
+
 // ===================== Heures de l'équipe =====================
 // Jean-Phi pointe le soir pour toute l'équipe : une ligne par compagnon et par chantier.
 // Hors ligne, la journée est gardée sur le téléphone (« heures-locales ») et part dès que possible.
@@ -1461,6 +1553,7 @@ function majAccueilHeures() {
     ? `${personnes} personne${personnes > 1 ? 's' : ''} · ${heuresLisibles(total)} · ${chantiers.slice(0, 2).join(', ')}${chantiers.length > 2 ? '…' : ''}`
     : new Date().getHours() >= 16 ? 'Pas encore pointées : touche pour pointer' : 'Pas encore pointées';
   $('#carte-heures').classList.toggle('a-faire', !auj.length && new Date().getHours() >= 16);
+  majJournee();
 }
 
 // Chantiers proposés dans les listes : ceux qui ne sont pas finalisés, plus celui déjà choisi.
@@ -1586,6 +1679,7 @@ async function enregistrerJournee() {
   dessinerRecap();
   majAccueilHeures();
   $('#btn-pointer').disabled = true;
+  if (total && pointage.date === jourIso(new Date())) { feter(); majJournee(true); }
   const { tousPartis } = await mettreEnFile([{ action: 'pointer', date: pointage.date, lignes }]);
   $('#btn-pointer').disabled = false;
   toast(tousPartis ? `Journée enregistrée ✅ ${heuresLisibles(total)}` : 'Journée gardée sur le téléphone : elle partira dès que possible.', tousPartis ? 'ok' : '');

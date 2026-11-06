@@ -22,16 +22,32 @@
 
   <!-- ===================== AUJOURD'HUI ===================== -->
   <main id="ecran-accueil" class="ecran onglet" data-onglet="accueil">
-    <header class="titre-page avec-logo">
-      <div>
-        <p id="accueil-date" class="sur-titre"></p>
-        <h1 id="accueil-bonjour">Bonjour</h1>
-        <p id="etat" class="etat"></p>
+    <header class="hero">
+      <div class="hero-haut">
+        <div>
+          <p id="accueil-date" class="sur-titre"></p>
+          <h1 id="accueil-bonjour">Bonjour</h1>
+          <p id="etat" class="etat"></p>
+        </div>
+        <img class="hero-logo" src="logo-blanc.svg" alt="Charpente du Léon" width="96" height="65">
       </div>
-      <picture class="logo-entete">
-        <source srcset="logo-blanc.svg" media="(prefers-color-scheme: dark)">
-        <img src="logo.svg" alt="Charpente du Léon" width="104" height="70">
-      </picture>
+      <!-- Ma journée : trois anneaux qui se remplissent (heures pointées, un dépôt, des choses faites) -->
+      <div class="journee">
+        <div class="anneaux" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <circle class="piste a1" cx="60" cy="60" r="52"/><circle id="anneau-heures" class="anneau a1" cx="60" cy="60" r="52"/>
+            <circle class="piste a2" cx="60" cy="60" r="39"/><circle id="anneau-depot" class="anneau a2" cx="60" cy="60" r="39"/>
+            <circle class="piste a3" cx="60" cy="60" r="26"/><circle id="anneau-tache" class="anneau a3" cx="60" cy="60" r="26"/>
+          </svg>
+          <b id="anneaux-score">0/3</b>
+        </div>
+        <ul class="objectifs">
+          <li id="obj-heures" class="o1"><i></i><span>Heures pointées</span></li>
+          <li id="obj-depot" class="o2"><i></i><span>Un document ou une photo</span></li>
+          <li id="obj-tache" class="o3"><i></i><span id="obj-tache-texte">3 choses faites</span></li>
+        </ul>
+      </div>
+      <p id="serie" class="serie"></p>
     </header>
 
     <div id="bandeau-installer" class="bandeau cache">
@@ -68,10 +84,10 @@
     </button>
 
     <div class="actions-rapides">
-      <button class="action" data-ouvre="chantier"><span>🏗️</span>Photo<br>chantier</button>
-      <button class="action" data-ouvre="note"><span>🎙️</span>Note<br>rapide</button>
-      <button class="action" data-ouvre="claude"><span>💬</span>Demander<br>à Claude</button>
-      <button class="action" data-ouvre="point"><span>📋</span>Point<br>du jour</button>
+      <button class="action" data-ouvre="chantier"><span class="tuile t-or">🏗️</span>Photo<br>chantier</button>
+      <button class="action" data-ouvre="note"><span class="tuile t-violet">🎙️</span>Note<br>rapide</button>
+      <button class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️</span>Heures<br>du jour</button>
+      <button class="action" data-ouvre="point"><span class="tuile t-bleu">📋</span>Point<br>du jour</button>
     </div>
 
     <section id="carte-meteo" class="carte carte-meteo">
@@ -85,7 +101,7 @@
     </section>
 
     <button id="carte-heures" class="carte carte-bouton">
-      <span class="carte-bouton-ico">⏱️</span>
+      <span class="carte-bouton-ico tuile t-vert">⏱️</span>
       <span class="carte-bouton-texte"><strong>Heures du jour</strong><small id="accueil-heures">Pas encore pointées</small></span>
       <span class="chevron">›</span>
     </button>
@@ -508,6 +524,7 @@
   <input id="import-input" class="cache" type="file" accept="image/*" multiple>
 
   <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
+  <div id="confettis" class="confettis" aria-hidden="true"></div>
 
   <script src="app.js"></script>
 </body>
