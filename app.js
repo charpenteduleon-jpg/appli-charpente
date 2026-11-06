@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1829,7 +1829,7 @@ function dessinerSemaine() {
   $('#heures-semaine-total').textContent = totalSemaine ? `${heuresLisibles(totalSemaine)} au total` : '';
 }
 
-// --- Récap du mois (pour la paie : COGEP jusqu'à octobre 2026, C2C Conseils ensuite) ---
+// --- Récap du mois (pour la paie : COGEP jusqu'à octobre 2026, Gurvan chez C2C Conseils ensuite) ---
 const recapCache = {}; // mois plus anciens que 3 mois, lus à la demande
 
 async function heuresDuMois(mois) {
@@ -1873,9 +1873,11 @@ async function dessinerRecap() {
   if (!noms.length) {
     $('#recap-liste').replaceChildren(el('li', {}, el('span', { class: 'discret' }, 'Aucune heure pointée ce mois-ci.')));
     $('#btn-copier-recap').disabled = true;
+    $('#btn-envoyer-recap').disabled = true;
     return;
   }
   $('#btn-copier-recap').disabled = false;
+  $('#btn-envoyer-recap').disabled = false;
   $('#recap-liste').replaceChildren(
     ...noms.map((n) => el('li', {}, el('span', {}, n, el('small', {}, ` · ${parCompagnon[n].jours.size} jour${parCompagnon[n].jours.size > 1 ? 's' : ''}`)), el('b', {}, heuresLisibles(parCompagnon[n].heures)))),
     el('li', { class: 'sous-titre-liste' }, el('span', {}, 'Par chantier')),
@@ -1884,9 +1886,12 @@ async function dessinerRecap() {
 }
 
 // Texte pour le cabinet qui fait la paie : total et détail jour par jour de chaque compagnon.
-async function copierRecap() {
+// Paie : Gurvan Le Gall, C2C Conseils (depuis la fin de la mission COGEP, octobre 2026).
+const PAIE = { prenom: 'Gurvan', mail: 'g.legall@c2c-conseils.com' };
+
+function texteRecap() {
   const r = pointage.recap;
-  if (!r) return;
+  if (!r) return '';
   const lignes = [`Heures de ${nomDuMois(r.mois)} – SARL Charpente du Léon`, ''];
   for (const n of r.noms) {
     const siennes = r.heures.filter((h) => h.compagnon === n).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -1897,9 +1902,24 @@ async function copierRecap() {
     lignes.push(Object.entries(parJour).map(([j, h]) => `${dateDeIso(j).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${heuresLisibles(h)}`).join(' · '));
     lignes.push('');
   }
+  return lignes.join('\n');
+}
+
+// Ouvre Mail avec le récap déjà écrit : il ne reste qu'à relire et envoyer.
+function envoyerRecap() {
+  const r = pointage.recap;
+  if (!r) return;
+  const sujet = `Heures de ${nomDuMois(r.mois)} – SARL Charpente du Léon`;
+  const corps = `Bonjour ${PAIE.prenom},\n\nVoici les heures du mois pour les fiches de paie.\n\n${texteRecap()}\nBonne journée,\nJean-Phi\nSARL Charpente du Léon`;
+  window.location.href = `mailto:${PAIE.mail}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
+}
+
+async function copierRecap() {
+  const texte = texteRecap();
+  if (!texte) return;
   try {
-    await navigator.clipboard.writeText(lignes.join('\n'));
-    toast('Récap copié : colle-le dans un mail au cabinet (paie).', 'ok');
+    await navigator.clipboard.writeText(texte);
+    toast(`Récap copié : colle-le dans un mail à ${PAIE.prenom}.`, 'ok');
   } catch {
     toast('Copie impossible sur cet appareil.', 'erreur');
   }
@@ -2369,6 +2389,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#recap-avant').onclick = () => decalerMois(-1);
   $('#recap-apres').onclick = () => decalerMois(1);
   $('#btn-copier-recap').onclick = copierRecap;
+  $('#btn-envoyer-recap').onclick = envoyerRecap;
   $('#btn-equipe').onclick = ouvrirEquipe;
   $('#equipe-retour').onclick = () => ouvrirHeures(pointage.date || jourIso(new Date()));
   $('#btn-ajouter-compagnon').onclick = () => { equipeEdition.push({ nom: '', cout: '', actif: true }); dessinerEquipe(); };

@@ -773,3 +773,8 @@ a.carte-bouton { text-decoration: none; color: inherit; }
 .statut-fiche .statut { font-size: 13px; padding: 5px 12px; }
 #btn-garder-calcul { margin-top: 14px; }
 .garder { margin-top: 4px; }
+
+/* ---------- Récap de paie ---------- */
+.recap-copier { display: block; margin: 10px auto 0; font-size: 15px; font-weight: 600; }
+.btn-c2c { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.btn-c2c img { width: 28px; height: 28px; border-radius: 7px; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
