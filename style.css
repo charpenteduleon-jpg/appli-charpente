@@ -405,6 +405,11 @@ body.masque > :not(#verrou) { filter: blur(18px); }
 .menu .ligne .btn-petit { flex: none; width: auto; margin: 0 0 0 auto; padding: 7px 14px; font-size: 14px; color: #fff; background: var(--rouge); }
 .bandeau .btn-petit { margin-top: 0; }
 
+.meteo-droite { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.meteo-droite .discret { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+#meteo-localiser { font-size: 14px; white-space: nowrap; }
+.source-meteo { font-size: 11px; color: var(--texte-doux); margin: 8px 0 0; text-align: right; }
+
 /* ===================== Statuts ProGBat (1.6) ===================== */
 .statut.attente { background: var(--bord); color: var(--bleu-vif); }
 .liste-cartes li.attente button { border-left-color: var(--bleu-vif); }

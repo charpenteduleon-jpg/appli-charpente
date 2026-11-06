@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -534,7 +534,9 @@ function jourLisible(ms, journee) {
 // ===================== Position GPS =====================
 let dernierePosition = lireJson('position', null); // { lat, lon, precision, quand }
 
-function obtenirPosition() {
+// Économie de batterie : le GPS précis ne sert que pour reconnaître un chantier (photo, document,
+// « Près de moi ») ; la météo se contente du réseau. Une position de moins de 2 minutes est réutilisée.
+function obtenirPosition(precise = true) {
   return new Promise((resoudre) => {
     if (!('geolocation' in navigator)) { resoudre(null); return; }
     navigator.geolocation.getCurrentPosition(
@@ -544,7 +546,7 @@ function obtenirPosition() {
         resoudre(dernierePosition);
       },
       () => resoudre(null),
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: precise, timeout: 10000, maximumAge: precise ? 120000 : 900000 }
     );
   });
 }
@@ -573,7 +575,9 @@ function chantierLePlusProche(pos) {
 }
 
 // ===================== Accueil « Aujourd'hui » =====================
+let accueilLu = 0;
 function rafraichirAccueil() {
+  accueilLu = Date.now();
   const maintenant = new Date();
   $('#accueil-date').textContent = maintenant.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const h = maintenant.getHours();
@@ -596,17 +600,31 @@ const METEO = [
 ];
 const ciel = (code) => METEO.find(([codes]) => codes.includes(code)) || [[], '🌡️', ''];
 
-async function chargerMeteo() {
+// Sur iPhone, l'appli installée oublie l'autorisation de position à chaque ouverture : la demander ici
+// ferait apparaître la fenêtre « … souhaite utiliser votre position » à chaque lancement. La météo
+// utilise donc la dernière position connue (photo, « Près de moi »…) ou l'atelier, et le bouton 📍 Ici.
+async function positionPourMeteo(demander) {
+  const age = dernierePosition ? Date.now() - dernierePosition.quand : Infinity;
+  if (!demander && age < 3600000) return dernierePosition;
+  let etat = '';
+  try { etat = (await navigator.permissions?.query({ name: 'geolocation' }))?.state || ''; } catch { /* API absente */ }
+  if (demander || etat === 'granted') return (await obtenirPosition(false)) || (age < 12 * 3600000 ? dernierePosition : null);
+  return age < 12 * 3600000 ? dernierePosition : null;
+}
+
+async function chargerMeteo(demander = false) {
   const enCache = lireJson('meteo', null);
   if (enCache) dessinerMeteo(enCache);
-  if (enCache && Date.now() - enCache.quand < 20 * 60000) return;
+  if (!demander && enCache && Date.now() - enCache.quand < 30 * 60000) return; // Météo-France recalcule toutes les heures
   if (!navigator.onLine) return;
-  const pos = (dernierePosition && Date.now() - dernierePosition.quand < 3600000) ? dernierePosition : (await obtenirPosition()) || null;
+  const pos = await positionPourMeteo(demander);
   const lieu = pos || ATELIER;
+  // Modèles de Météo-France (AROME 1,3 km à courte échéance, puis ARPÈGE) : les plus fiables en Bretagne,
+  // surtout pour les rafales. Ils donnent la pluie en millimètres, pas en pourcentage.
   const url = 'https://api.open-meteo.com/v1/forecast?' + new URLSearchParams({
-    latitude: lieu.lat.toFixed(4), longitude: lieu.lon.toFixed(4),
+    latitude: lieu.lat.toFixed(4), longitude: lieu.lon.toFixed(4), models: 'meteofrance_seamless',
     current: 'temperature_2m,weather_code,wind_speed_10m,wind_gusts_10m',
-    hourly: 'wind_gusts_10m,precipitation_probability',
+    hourly: 'wind_gusts_10m,precipitation',
     daily: 'wind_gusts_10m_max,temperature_2m_max,temperature_2m_min',
     forecast_days: '2', timezone: 'Europe/Paris',
   });
@@ -624,15 +642,21 @@ async function chargerMeteo() {
   }
 }
 
-function dessinerMeteo({ lieu, m }) {
+function dessinerMeteo({ lieu, m, quand: majMeteo }) {
   const [, ico, libelle] = ciel(m.current.weather_code);
   $('#meteo-lieu').textContent = lieu;
   const maintenant = Date.now();
-  const heures = m.hourly.time.map((t, i) => ({ t: new Date(t).getTime(), rafale: m.hourly.wind_gusts_10m[i], pluie: m.hourly.precipitation_probability[i] }));
+  const mm = m.hourly.precipitation || [];
+  const heures = m.hourly.time.map((t, i) => ({ t: new Date(t).getTime(), rafale: m.hourly.wind_gusts_10m[i], pluie: mm[i] ?? 0 }));
   const finJournee = new Date(); finJournee.setHours(20, 0, 0, 0);
   const reste = heures.filter((h) => h.t >= maintenant - 3600000 && h.t <= finJournee.getTime());
   const pic = reste.reduce((max, h) => (h.rafale > (max?.rafale ?? -1) ? h : max), null);
-  const pluie6h = Math.max(0, ...heures.filter((h) => h.t >= maintenant && h.t <= maintenant + 6 * 3600000).map((h) => h.pluie ?? 0));
+  const six = heures.filter((h) => h.t >= maintenant - 3600000 && h.t <= maintenant + 6 * 3600000);
+  const total6h = six.reduce((s, h) => s + h.pluie, 0);
+  const premiere = six.find((h) => h.pluie >= 0.2);
+  const texteDePluie = !premiere
+    ? (total6h >= 0.1 ? 'Quelques gouttes possibles d\'ici 6 h' : 'Pas de pluie d\'ici 6 h')
+    : `Pluie ${premiere.t <= maintenant ? 'en ce moment' : `vers ${new Date(premiere.t).getHours()} h`} · ${total6h.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} mm sur 6 h`;
   const demainRafales = Math.round(m.daily.wind_gusts_10m_max[1]);
 
   const bloc = el('div', { id: 'meteo-contenu' },
@@ -642,7 +666,7 @@ function dessinerMeteo({ lieu, m }) {
       el('div', { class: 'meteo-detail' },
         el('div', {}, `${libelle} · ${Math.round(m.daily.temperature_2m_min[0])}° / ${Math.round(m.daily.temperature_2m_max[0])}°`),
         el('div', {}, `Vent ${Math.round(m.current.wind_speed_10m)} km/h · rafales ${Math.round(m.current.wind_gusts_10m)} km/h`),
-        el('div', {}, `Pluie dans les 6 h : ${pluie6h} %`))));
+        el('div', {}, texteDePluie))));
   if (pic && pic.rafale >= SEUIL_RAFALES) {
     const h = new Date(pic.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     bloc.append(el('div', { class: 'alerte' }, `⚠️ Rafales jusqu'à ${Math.round(pic.rafale)} km/h vers ${h} : levage déconseillé`));
@@ -651,6 +675,7 @@ function dessinerMeteo({ lieu, m }) {
   } else {
     bloc.append(el('div', { class: 'alerte ok' }, `✓ Vent calme pour le levage aujourd'hui (demain rafales ${demainRafales} km/h)`));
   }
+  bloc.append(el('p', { class: 'source-meteo' }, `Météo-France · mise à jour à ${new Date(majMeteo).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`));
   $('#meteo-contenu').replaceWith(bloc);
 }
 
@@ -2082,6 +2107,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fiche-enregistrer').onclick = enregistrerInfosChantier;
   $('#fiche-archiver').onclick = archiverChantier;
 
+  $('#meteo-localiser').onclick = async () => {
+    const b = $('#meteo-localiser');
+    b.textContent = '📍 …';
+    await chargerMeteo(true);
+    b.textContent = '📍 Ici';
+  };
+
   // Heures, équipe, rentabilité
   $('#carte-heures').onclick = () => ouvrirHeures();
   $('#heures-avant').onclick = () => changerJour(-1);
@@ -2156,9 +2188,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (faceIdActif() && demarree && !securite.verrouillee && Date.now() - securite.cacheDepuis > DELAI_VERROU_MS) { verrouiller(); return; }
     if (!demarree || securite.verrouillee) return;
     viderFile();
-    if (ecranCourant === 'accueil') rafraichirAccueil();
+    // Économie de batterie : l'accueil ne relit le serveur que si la dernière lecture date de plus de 5 minutes.
+    if (ecranCourant === 'accueil' && Date.now() - accueilLu > 5 * 60000) rafraichirAccueil();
   });
-  setInterval(() => { if (!document.hidden) viderFile(); }, 60000);
+  // Envois en attente : on réessaie toutes les 5 minutes, et seulement s'il y en a (le retour du réseau relance aussi).
+  setInterval(async () => { if (!document.hidden && !envoiEnCours && (await fileCompter()) > 0) viderFile(); }, 5 * 60000);
 
   // Demande à l'iPhone de ne pas effacer les données de l'appli (envois en attente)
   navigator.storage?.persist?.().catch(() => {});
