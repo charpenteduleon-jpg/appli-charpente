@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.5.1';
+const VERSION = '1.6.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -10,7 +10,11 @@ const RAYON_CHANTIER_M = 400;      // même valeur que sur le serveur Google
 const SEUIL_RAFALES = 50;          // km/h : au-delà, levage déconseillé
 const DELAI_SERVEUR_MS = 45000;
 const ATELIER = { lat: 48.6644, lon: -4.1006, nom: 'Cléder (atelier)' };
-const STATUTS = ['À venir', 'En cours', 'Terminé', 'Archivé'];
+// Mêmes étapes que dans ProGBat (le serveur les recopie de ProGBat). « Archivé » : caché partout.
+const STATUTS = ['Devis en attente', 'Devis accepté', 'En cours', 'Finalisé'];
+const ANCIENS_STATUTS = { 'À venir': 'Devis accepté', 'Terminé': 'Finalisé' };
+const statutDe = (s) => ANCIENS_STATUTS[s] || s || 'En cours';
+const STATUTS_COURTS = { 'Devis en attente': 'Devis ⏳', 'Devis accepté': 'Accepté', 'En cours': 'En cours', 'Finalisé': 'Finalisé' };
 const DELAI_VERROU_MS = 2 * 60000; // retour dans l'appli après 2 minutes ailleurs : Face ID redemandé
 
 // ===================== Stockage local =====================
@@ -465,7 +469,11 @@ function noterEnvoi(envoi, res, probleme = '') {
   if ((envoi.action === 'depot' || envoi.action === 'chantier') && envoi.page && envoi.page < envoi.total && !probleme) return;
   const libelles = {
     depot: '📄 Document', chantier: '🏗️ Photos', note: '🎙️ Note', majTache: '✅ Fait', majChantier: '✏️ Chantier',
+    pointer: '⏱️ Heures', majEquipe: '👷 Équipe',
   };
+  if (envoi.action === 'pointer') {
+    envoi = { ...envoi, type: dateDeIso(envoi.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) };
+  }
   let libelle = libelles[envoi.action] || envoi.action;
   if (envoi.type) libelle += ` · ${envoi.type}`;
   const chantier = envoi.chantier || (envoi.action === 'chantier' ? res.nom : '');
@@ -576,6 +584,8 @@ function rafraichirAccueil() {
   chargerMeteo();
   lireAvecCache('agenda', { action: 'agenda' }, (r) => r.evenements, dessinerAgenda);
   chargerTaches();
+  majAccueilHeures();
+  chargerHeures();
 }
 
 // --- Météo (Open-Meteo, gratuit et sans clé) ---
@@ -1060,13 +1070,27 @@ async function ouvrirChantiers() {
 const COULEURS = ['#1c4587', '#1f9d55', '#e67e22', '#8e44ad', '#c0392b', '#16a085', '#2c3e50', '#d35400'];
 const couleurDe = (texte) => COULEURS[[...texte].reduce((s, c) => s + c.charCodeAt(0), 0) % COULEURS.length];
 const initiales = (nom) => nom.split(/[\s-]+/).filter((m) => /^[A-Za-zÀ-ÿ]/.test(m)).slice(0, 2).map((m) => m[0].toUpperCase()).join('');
-const classeStatut = (s) => ({ 'En cours': 'en-cours', 'À venir': 'a-venir', 'Terminé': 'termine' }[s] || '');
+const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
+
+// « Tous » montre tout sauf les chantiers finalisés, qui ont leur propre onglet.
+const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : statutDe(c.statut) !== 'Finalisé');
+
+function majCompteursStatut() {
+  const liste = listeChantiers();
+  for (const b of $$('#filtres-statut [data-statut]')) {
+    if (!b.dataset.libelle) b.dataset.libelle = b.textContent;
+    const n = liste.filter((c) => dansFiltre(c, b.dataset.statut)).length;
+    b.textContent = liste.length ? `${b.dataset.libelle} · ${n}` : b.dataset.libelle;
+  }
+}
 
 function dessinerChantiers() {
+  majCompteursStatut();
   const filtre = $('#chantiers-recherche').value.trim().toLowerCase();
   const pos = triDistance ? dernierePosition : null;
   const elements = listeChantiers()
-    .filter((c) => !filtreStatut || c.statut === filtreStatut)
+    .map((c) => ({ ...c, statut: statutDe(c.statut) }))
+    .filter((c) => dansFiltre(c, filtreStatut))
     .filter((c) => !filtre || `${c.nom} ${c.client}`.toLowerCase().includes(filtre))
     .map((c) => ({ ...c, distance: pos && c.lat != null ? distanceM(pos.lat, pos.lon, c.lat, c.lon) : null }));
   if (pos) elements.sort((a, b) => (a.distance ?? 1e12) - (b.distance ?? 1e12));
@@ -1123,13 +1147,15 @@ function dessinerFiche(f) {
   itin.classList.toggle('cache', f.lat == null && !f.adresse);
   if (f.lat != null || f.adresse) itin.href = `https://maps.apple.com/?daddr=${f.lat != null ? `${f.lat},${f.lon}` : encodeURIComponent(f.adresse)}`;
 
-  $('#fiche-statut').replaceChildren(...(f.statuts || STATUTS).map((s) =>
-    el('button', { class: s === f.statut ? 'active' : '', onclick: () => changerStatut(s) }, s)));
+  $('#fiche-statut').replaceChildren(...STATUTS.map((s) =>
+    el('button', { class: s === statutDe(f.statut) ? 'active' : '', 'data-statut': s, onclick: () => changerStatut(s) }, STATUTS_COURTS[s])));
   $('#fiche-client').value = f.client || '';
   $('#fiche-tel').value = f.telephone || '';
   $('#fiche-adresse').value = f.adresse || '';
+  $('#fiche-devis').value = f.devisHT ? String(f.devisHT).replace('.', ',') : '';
 
   const blocs = [];
+  if (f.argent) blocs.push(carteRentabilite(f.argent));
   if (f.evenements?.length) {
     blocs.push(el('section', { class: 'carte' }, el('h2', {}, '📅 Prochains rendez-vous'),
       el('ul', { class: 'liste-simple' }, ...f.evenements.map((e) => el('li', {},
@@ -1188,19 +1214,40 @@ const lienDossier = (r) => el('a', { class: 'fichier', href: r.url, target: '_bl
 
 async function changerStatut(statut) {
   if (!ficheCourante?.nom) return;
+  const nom = ficheCourante.nom;
   ficheCourante.statut = statut;
-  for (const b of $$('#fiche-statut button')) b.classList.toggle('active', b.textContent === statut);
+  for (const b of $$('#fiche-statut button')) b.classList.toggle('active', b.dataset.statut === statut);
   const liste = listeChantiers();
-  const c = liste.find((x) => x.nom === ficheCourante.nom);
-  if (c) { c.statut = statut; ecrireJson('chantiers', liste); }
-  await mettreEnFile([{ action: 'majChantier', chantier: ficheCourante.nom, statut }]);
-  toast(`Statut : ${statut}`, 'ok');
+  const c = liste.find((x) => x.nom === nom);
+  if (c) c.statut = statut;
+  // Un chantier archivé disparaît de l'appli (le serveur ne l'envoie plus).
+  ecrireJson('chantiers', statut === 'Archivé' ? liste.filter((x) => x.nom !== nom) : liste);
+  await mettreEnFile([{ action: 'majChantier', chantier: nom, statut }]);
+  toast(statut === 'Archivé' ? `${nom} archivé` : `Statut : ${statut}`, 'ok');
+}
+
+async function archiverChantier() {
+  if (!ficheCourante?.nom) return;
+  if (!confirm(`Archiver « ${ficheCourante.nom} » ? Il n'apparaîtra plus dans l'appli (il reste dans Drive et dans le registre).`)) return;
+  await changerStatut('Archivé');
+  ouvrirOnglet('chantiers');
+}
+
+// Montant tapé « 12 450,50 € » → 12450.5 ; vide → '' (efface le montant).
+function lireMontant(texte) {
+  const t = String(texte || '').replace(/[\s €]/g, '').replace(',', '.');
+  if (!t) return '';
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 }
 
 async function enregistrerInfosChantier() {
   if (!ficheCourante?.nom) return;
-  const maj = { client: $('#fiche-client').value.trim(), telephone: $('#fiche-tel').value.trim(), adresse: $('#fiche-adresse').value.trim() };
-  Object.assign(ficheCourante, maj);
+  const devisHT = lireMontant($('#fiche-devis').value);
+  if (devisHT === null) { toast('Montant du devis incorrect (ex. 12 450,50).', 'erreur'); return; }
+  const maj = { client: $('#fiche-client').value.trim(), telephone: $('#fiche-tel').value.trim(), adresse: $('#fiche-adresse').value.trim(), devisHT };
+  Object.assign(ficheCourante, maj, { devisHT: devisHT || null });
+  if (ficheCourante.argent) recalculerArgent(ficheCourante.argent, devisHT || null);
   const liste = listeChantiers();
   const c = liste.find((x) => x.nom === ficheCourante.nom);
   if (c) { c.client = maj.client; ecrireJson('chantiers', liste); }
@@ -1343,6 +1390,388 @@ function ouvrirClaude() {
   const texte = $('#claude-texte').value.trim();
   // L'appli Claude s'ouvre si elle est installée (lien universel claude.ai).
   window.location.href = texte ? `https://claude.ai/new?q=${encodeURIComponent(texte)}` : 'https://claude.ai/new';
+}
+
+// ===================== Heures de l'équipe =====================
+// Jean-Phi pointe le soir pour toute l'équipe : une ligne par compagnon et par chantier.
+// Hors ligne, la journée est gardée sur le téléphone (« heures-locales ») et part dès que possible.
+const JOURNEE_H = 8;
+const PAS_H = 0.5;
+const jourIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dateDeIso = (s) => { const [a, m, j] = s.split('-').map(Number); return new Date(a, m - 1, j, 12); };
+const decalerJour = (iso, n) => { const d = dateDeIso(iso); d.setDate(d.getDate() + n); return jourIso(d); };
+const majuscule = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const heuresLisibles = (h) => `${(Math.round(h * 100) / 100).toLocaleString('fr-FR')} h`;
+const euros = (v) => `${Math.round(v).toLocaleString('fr-FR')} €`;
+
+const equipeListe = () => (lireJson('equipe', []) || []).filter((p) => p && p.nom);
+const heuresLocales = () => lireJson('heures-locales', {}) || {};
+const pointage = { date: '', lignes: [], modifie: false, mois: '' };
+
+// Heures connues : celles du serveur, remplacées jour par jour par celles pas encore envoyées.
+function toutesHeures() {
+  const locales = heuresLocales();
+  const serveur = (lireJson('heures', []) || []).filter((h) => !locales[h.date]);
+  return [...serveur, ...Object.entries(locales).flatMap(([date, lignes]) => lignes.map((l) => ({ ...l, date })))];
+}
+const heuresDuJour = (date) => toutesHeures().filter((h) => h.date === date);
+
+function chargerHeures(ensuite) {
+  const d = new Date();
+  const du = jourIso(new Date(d.getFullYear(), d.getMonth() - 2, 1)); // les 3 derniers mois
+  lireAvecCache('heures', { action: 'heures', du }, (r) => r.heures, async (v, depuisCache) => {
+    // Le serveur a répondu après l'envoi de tout ce qui attendait : la copie locale ne sert plus.
+    if (!depuisCache && v && (await fileCompter()) === 0) ecrireJson('heures-locales', {});
+    majAccueilHeures();
+    ensuite?.();
+  });
+}
+
+function majAccueilHeures() {
+  const auj = heuresDuJour(jourIso(new Date()));
+  const total = auj.reduce((s, h) => s + h.heures, 0);
+  const personnes = new Set(auj.map((h) => h.compagnon)).size;
+  const chantiers = [...new Set(auj.map((h) => h.chantier))];
+  $('#accueil-heures').textContent = auj.length
+    ? `${personnes} personne${personnes > 1 ? 's' : ''} · ${heuresLisibles(total)} · ${chantiers.slice(0, 2).join(', ')}${chantiers.length > 2 ? '…' : ''}`
+    : new Date().getHours() >= 16 ? 'Pas encore pointées : touche pour pointer' : 'Pas encore pointées';
+  $('#carte-heures').classList.toggle('a-faire', !auj.length && new Date().getHours() >= 16);
+}
+
+// Chantiers proposés dans les listes : ceux qui ne sont pas finalisés, plus celui déjà choisi.
+function remplirSelectChantiersActifs(select, choisi, premier) {
+  const actifs = listeChantiers().filter((c) => !['Finalisé', 'Archivé'].includes(statutDe(c.statut)));
+  const options = [el('option', { value: '' }, premier), ...actifs.map((c) => el('option', { value: c.nom }, c.nom))];
+  if (choisi && !actifs.some((c) => c.nom === choisi)) options.push(el('option', { value: choisi }, choisi));
+  select.replaceChildren(...options);
+  select.value = choisi || '';
+}
+
+// Chantier proposé pour un compagnon : celui de son dernier pointage, sinon celui où se trouve Jean-Phi.
+function chantierProposePour(nom, date) {
+  const avant = toutesHeures().filter((h) => h.compagnon === nom && h.date < date).sort((a, b) => (a.date < b.date ? 1 : -1));
+  if (avant.length) return avant[0].chantier;
+  const proche = dernierePosition ? chantierLePlusProche(dernierePosition) : null;
+  return proche ? proche.nom : '';
+}
+
+function ouvrirHeures(date = jourIso(new Date())) {
+  pointage.date = date;
+  pointage.mois = date.slice(0, 7);
+  afficher('heures');
+  preparerJour();
+  const rafraichir = () => { if (ecranCourant === 'heures' && !pointage.modifie) preparerJour(); else { dessinerSemaine(); dessinerRecap(); } };
+  lireAvecCache('equipe', { action: 'equipe' }, (r) => r.equipe, rafraichir);
+  chargerHeures(rafraichir);
+  rafraichirChantiers().then(rafraichir);
+}
+
+function changerJour(n) {
+  if (pointage.modifie && !confirm('La journée affichée n\'est pas enregistrée. Changer de jour quand même ?')) return;
+  pointage.date = decalerJour(pointage.date, n);
+  preparerJour();
+}
+
+function preparerJour() {
+  pointage.modifie = false;
+  $('#heures-date').textContent = majuscule(dateDeIso(pointage.date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }));
+  const lignes = heuresDuJour(pointage.date).map((h) => ({ compagnon: h.compagnon, chantier: h.chantier, heures: h.heures }));
+  for (const p of equipeListe().filter((x) => x.actif !== false)) {
+    if (!lignes.some((l) => l.compagnon === p.nom)) lignes.push({ compagnon: p.nom, chantier: chantierProposePour(p.nom, pointage.date), heures: 0 });
+  }
+  pointage.lignes = lignes;
+  remplirSelectChantiersActifs($('#heures-chantier-tous'), '', '— Choisir le chantier —');
+  dessinerLignesHeures();
+  dessinerSemaine();
+  dessinerRecap();
+}
+
+function modifierPointage() {
+  pointage.modifie = true;
+  dessinerLignesHeures();
+}
+
+function dessinerLignesHeures() {
+  const zone = $('#heures-lignes');
+  const noms = [...new Set(pointage.lignes.map((l) => l.compagnon))];
+  if (!noms.length) {
+    zone.replaceChildren(el('section', { class: 'carte etat-vide' }, el('span', {}, '👷'),
+      'Ajoute d\'abord ton équipe : nom et coût horaire de chacun.',
+      el('button', { class: 'btn secondaire', onclick: ouvrirEquipe }, '👷 Mon équipe')));
+    $('#btn-pointer').disabled = true;
+    return;
+  }
+  $('#btn-pointer').disabled = false;
+  zone.replaceChildren(...noms.map((nom) => {
+    const indices = pointage.lignes.map((l, i) => (l.compagnon === nom ? i : -1)).filter((i) => i >= 0);
+    const total = indices.reduce((s, i) => s + pointage.lignes[i].heures, 0);
+    const carte = el('section', { class: `carte compagnon${total ? '' : ' absent'}` },
+      el('div', { class: 'carte-entete' }, el('h2', {}, nom), el('span', { class: 'total-compagnon' }, total ? heuresLisibles(total) : 'pas pointé')));
+    for (const i of indices) {
+      const l = pointage.lignes[i];
+      const select = el('select', { 'aria-label': `Chantier de ${nom}` });
+      remplirSelectChantiersActifs(select, l.chantier, '— Chantier —');
+      select.onchange = () => { l.chantier = select.value; pointage.modifie = true; };
+      const champ = el('input', { type: 'text', inputmode: 'decimal', value: l.heures ? String(l.heures).replace('.', ',') : '', placeholder: '0', 'aria-label': `Heures de ${nom}` });
+      champ.onchange = () => { const v = parseFloat(champ.value.replace(',', '.')); l.heures = Number.isFinite(v) ? Math.min(Math.max(Math.round(v * 4) / 4, 0), 24) : 0; modifierPointage(); };
+      const pas = (n) => () => { l.heures = Math.min(Math.max(l.heures + n, 0), 24); modifierPointage(); };
+      carte.append(el('div', { class: 'ligne-heure' }, select,
+        el('div', { class: 'pas' },
+          el('button', { 'aria-label': 'Moins', onclick: pas(-PAS_H) }, '−'), champ, el('button', { 'aria-label': 'Plus', onclick: pas(PAS_H) }, '+')),
+        indices.length > 1 ? el('button', { class: 'retirer', 'aria-label': 'Retirer ce chantier', onclick: () => { pointage.lignes.splice(i, 1); modifierPointage(); } }, '×') : null));
+    }
+    const premier = pointage.lignes[indices[0]];
+    const regler = (h) => () => {
+      premier.heures = h;
+      if (!h) for (const i of indices.slice(1).reverse()) pointage.lignes.splice(i, 1);
+      modifierPointage();
+    };
+    carte.append(el('div', { class: 'puces raccourcis' },
+      el('button', { class: 'puce', onclick: regler(JOURNEE_H) }, `Journée (${JOURNEE_H} h)`),
+      el('button', { class: 'puce', onclick: regler(JOURNEE_H / 2) }, '½ journée'),
+      el('button', { class: 'puce', onclick: regler(0) }, 'Absent'),
+      el('button', { class: 'puce', onclick: () => { pointage.lignes.splice(indices[indices.length - 1] + 1, 0, { compagnon: nom, chantier: '', heures: 0 }); modifierPointage(); } }, '＋ Autre chantier')));
+    return carte;
+  }));
+}
+
+// « Tout le monde au même endroit » : le chantier choisi et/ou la journée pour chacun.
+function pourTous(champ, valeur) {
+  const vus = new Set();
+  for (const l of pointage.lignes) {
+    if (vus.has(l.compagnon)) continue; // seulement la première ligne de chacun
+    vus.add(l.compagnon);
+    l[champ] = valeur;
+  }
+  modifierPointage();
+}
+
+async function enregistrerJournee() {
+  const lignes = pointage.lignes.filter((l) => l.heures > 0).map(({ compagnon, chantier, heures }) => ({ compagnon, chantier, heures }));
+  const sansChantier = lignes.find((l) => !l.chantier);
+  if (sansChantier) { toast(`Choisis le chantier de ${sansChantier.compagnon}.`, 'erreur'); return; }
+  if (!lignes.length && !heuresDuJour(pointage.date).length) { toast('Personne n\'est pointé ce jour-là.', 'erreur'); return; }
+  const locales = heuresLocales();
+  locales[pointage.date] = lignes;
+  ecrireJson('heures-locales', locales);
+  pointage.modifie = false;
+  const total = lignes.reduce((s, l) => s + l.heures, 0);
+  dessinerLignesHeures();
+  dessinerSemaine();
+  dessinerRecap();
+  majAccueilHeures();
+  $('#btn-pointer').disabled = true;
+  const { tousPartis } = await mettreEnFile([{ action: 'pointer', date: pointage.date, lignes }]);
+  $('#btn-pointer').disabled = false;
+  toast(tousPartis ? `Journée enregistrée ✅ ${heuresLisibles(total)}` : 'Journée gardée sur le téléphone : elle partira dès que possible.', tousPartis ? 'ok' : '');
+}
+
+function dessinerSemaine() {
+  const d = dateDeIso(pointage.date);
+  const lundi = decalerJour(pointage.date, -((d.getDay() + 6) % 7));
+  const jours = Array.from({ length: 6 }, (_, i) => decalerJour(lundi, i)); // du lundi au samedi
+  const heures = toutesHeures();
+  let totalSemaine = 0;
+  $('#heures-semaine').replaceChildren(...jours.map((jour) => {
+    const duJour = heures.filter((h) => h.date === jour);
+    const total = duJour.reduce((s, h) => s + h.heures, 0);
+    totalSemaine += total;
+    const libelle = majuscule(dateDeIso(jour).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }));
+    return el('li', { class: `jour-semaine${jour === pointage.date ? ' actif' : ''}`, onclick: () => { if (jour !== pointage.date) changerJour(Math.round((dateDeIso(jour) - dateDeIso(pointage.date)) / 864e5)); } },
+      el('span', {}, libelle, duJour.length ? el('small', {}, ` · ${[...new Set(duJour.map((h) => h.chantier))].join(', ')}`) : null),
+      el('b', {}, total ? heuresLisibles(total) : '—'));
+  }));
+  $('#heures-semaine-total').textContent = totalSemaine ? `${heuresLisibles(totalSemaine)} au total` : '';
+}
+
+// --- Récap du mois (pour la paie, Nelly) ---
+const recapCache = {}; // mois plus anciens que 3 mois, lus à la demande
+
+async function heuresDuMois(mois) {
+  const d = new Date();
+  const debutCache = jourIso(new Date(d.getFullYear(), d.getMonth() - 2, 1)).slice(0, 7);
+  if (mois >= debutCache) return toutesHeures().filter((h) => h.date.startsWith(mois));
+  if (recapCache[mois]) return recapCache[mois];
+  const [a, m] = mois.split('-').map(Number);
+  const res = await appelServeur({ action: 'heures', du: `${mois}-01`, au: jourIso(new Date(a, m, 0)) });
+  recapCache[mois] = res.heures;
+  return res.heures;
+}
+
+function decalerMois(n) {
+  const [a, m] = pointage.mois.split('-').map(Number);
+  const d = new Date(a, m - 1 + n, 1);
+  pointage.mois = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  dessinerRecap();
+}
+
+const nomDuMois = (mois) => { const [a, m] = mois.split('-').map(Number); return new Date(a, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }); };
+
+async function dessinerRecap() {
+  const mois = pointage.mois || jourIso(new Date()).slice(0, 7);
+  $('#recap-mois').textContent = nomDuMois(mois);
+  let heures;
+  try { heures = await heuresDuMois(mois); } catch (e) {
+    $('#recap-liste').replaceChildren(el('li', {}, el('span', { class: 'discret' }, `Indisponible : ${e.message}`)));
+    return;
+  }
+  if (mois !== pointage.mois) return; // l'utilisateur a changé de mois entre-temps
+  const parCompagnon = {};
+  const parChantier = {};
+  for (const h of heures) {
+    const p = parCompagnon[h.compagnon] || (parCompagnon[h.compagnon] = { heures: 0, jours: new Set() });
+    p.heures += h.heures;
+    p.jours.add(h.date);
+    parChantier[h.chantier] = (parChantier[h.chantier] || 0) + h.heures;
+  }
+  const noms = Object.keys(parCompagnon).sort((a, b) => a.localeCompare(b, 'fr'));
+  if (!noms.length) {
+    $('#recap-liste').replaceChildren(el('li', {}, el('span', { class: 'discret' }, 'Aucune heure pointée ce mois-ci.')));
+    $('#btn-copier-recap').disabled = true;
+    return;
+  }
+  $('#btn-copier-recap').disabled = false;
+  $('#recap-liste').replaceChildren(
+    ...noms.map((n) => el('li', {}, el('span', {}, n, el('small', {}, ` · ${parCompagnon[n].jours.size} jour${parCompagnon[n].jours.size > 1 ? 's' : ''}`)), el('b', {}, heuresLisibles(parCompagnon[n].heures)))),
+    el('li', { class: 'sous-titre-liste' }, el('span', {}, 'Par chantier')),
+    ...Object.entries(parChantier).sort((a, b) => b[1] - a[1]).map(([c, h]) => el('li', {}, el('span', {}, c), el('b', {}, heuresLisibles(h)))));
+  pointage.recap = { mois, heures, noms };
+}
+
+// Texte pour Nelly (COGEP) : total et détail jour par jour de chaque compagnon.
+async function copierRecap() {
+  const r = pointage.recap;
+  if (!r) return;
+  const lignes = [`Heures de ${nomDuMois(r.mois)} – SARL Charpente du Léon`, ''];
+  for (const n of r.noms) {
+    const siennes = r.heures.filter((h) => h.compagnon === n).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const parJour = {};
+    for (const h of siennes) parJour[h.date] = (parJour[h.date] || 0) + h.heures;
+    const total = siennes.reduce((s, h) => s + h.heures, 0);
+    lignes.push(`${n} : ${heuresLisibles(total)} sur ${Object.keys(parJour).length} jours`);
+    lignes.push(Object.entries(parJour).map(([j, h]) => `${dateDeIso(j).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${heuresLisibles(h)}`).join(' · '));
+    lignes.push('');
+  }
+  try {
+    await navigator.clipboard.writeText(lignes.join('\n'));
+    toast('Récap copié : colle-le dans un mail à Nelly.', 'ok');
+  } catch {
+    toast('Copie impossible sur cet appareil.', 'erreur');
+  }
+}
+
+// --- Équipe ---
+let equipeEdition = [];
+
+function ouvrirEquipe() {
+  equipeEdition = equipeListe().map((p) => ({ ...p }));
+  if (!equipeEdition.length) equipeEdition.push({ nom: '', cout: '', actif: true });
+  afficher('equipe');
+  dessinerEquipe();
+}
+
+function dessinerEquipe() {
+  $('#equipe-liste').replaceChildren(...equipeEdition.map((p, i) => {
+    const nom = el('input', { type: 'text', value: p.nom || '', placeholder: 'Prénom Nom', autocomplete: 'off', 'aria-label': 'Nom' });
+    nom.oninput = () => { p.nom = nom.value; };
+    const cout = el('input', { type: 'text', inputmode: 'decimal', value: p.cout ? String(p.cout).replace('.', ',') : '', placeholder: '35', 'aria-label': 'Coût horaire chargé' });
+    cout.oninput = () => { p.cout = parseFloat(cout.value.replace(',', '.')) || ''; };
+    const actif = el('input', { type: 'checkbox' });
+    actif.checked = p.actif !== false;
+    actif.onchange = () => { p.actif = actif.checked; };
+    return el('section', { class: 'carte equipier' },
+      el('div', { class: 'champ' }, el('label', {}, 'Nom'), nom),
+      el('div', { class: 'equipier-bas' },
+        el('div', { class: 'champ' }, el('label', {}, 'Coût horaire chargé (€)'), cout),
+        el('div', { class: 'champ' }, el('label', {}, 'À pointer'), el('label', { class: 'interrupteur' }, actif, el('span'))),
+        el('button', { class: 'retirer', 'aria-label': 'Retirer', onclick: () => { equipeEdition.splice(i, 1); dessinerEquipe(); } }, '×')));
+  }));
+}
+
+async function enregistrerEquipe() {
+  const equipe = equipeEdition
+    .map((p) => ({ nom: String(p.nom || '').trim(), cout: Number(p.cout) || 0, actif: p.actif !== false }))
+    .filter((p) => p.nom);
+  const noms = equipe.map((p) => p.nom.toLowerCase());
+  if (noms.some((n, i) => noms.indexOf(n) !== i)) { toast('Deux personnes ont le même nom.', 'erreur'); return; }
+  if (equipe.some((p) => !p.cout)) { toast('Mets le coût horaire de chacun (35 € si tu ne sais pas).', 'erreur'); return; }
+  ecrireJson('equipe', equipe);
+  const { tousPartis } = await mettreEnFile([{ action: 'majEquipe', equipe }]);
+  toast(tousPartis ? 'Équipe enregistrée ✅' : 'Équipe gardée : elle partira dès que possible.', tousPartis ? 'ok' : '');
+  ouvrirHeures(pointage.date || jourIso(new Date()));
+}
+
+// ===================== Rentabilité =====================
+// Dépensé = achats du chantier (registre des factures) + heures pointées × coût horaire de chacun.
+// Jauge : dépensé / devis HT. Vert sous 75 %, orange jusqu'à 95 %, rouge au-delà.
+const niveauRenta = (ratio) => (ratio == null ? 'gris' : ratio < 0.75 ? 'vert' : ratio < 0.95 ? 'orange' : 'rouge');
+const jaugeRenta = (ratio) => el('div', { class: `jauge ${niveauRenta(ratio)}`, role: 'img', 'aria-label': ratio == null ? 'Devis inconnu' : `${Math.round(ratio * 100)} % du devis dépensé` },
+  el('span', { style: `width:${ratio == null ? 0 : Math.min(ratio, 1) * 100}%` }));
+
+function recalculerArgent(a, devisHT) {
+  a.devisHT = devisHT;
+  a.marge = devisHT ? Math.round((devisHT - a.depense) * 100) / 100 : null;
+  a.ratio = devisHT ? a.depense / devisHT : null;
+}
+
+function carteRentabilite(a) {
+  const carte = el('section', { class: 'carte rentabilite' },
+    el('div', { class: 'carte-entete' }, el('h2', {}, '💶 Rentabilité'),
+      a.ratio != null ? el('span', { class: `pourcent ${niveauRenta(a.ratio)}` }, `${Math.round(a.ratio * 100)} % dépensé`) : null),
+    jaugeRenta(a.ratio));
+  const lignes = [
+    ['Devis HT', a.devisHT ? euros(a.devisHT) : '—'],
+    [`Achats${a.nbAchats ? ` (${a.nbAchats} facture${a.nbAchats > 1 ? 's' : ''})` : ''}`, euros(a.achatsHT)],
+    [`Main-d'œuvre (${heuresLisibles(a.heures)})`, euros(a.mainOeuvre)],
+    ['Dépensé', euros(a.depense)],
+  ];
+  if (a.marge != null) lignes.push([a.marge >= 0 ? 'Reste sur le devis' : 'Dépassement', euros(Math.abs(a.marge))]);
+  carte.append(el('ul', { class: 'resultats' }, ...lignes.map(([t, v], i) =>
+    el('li', { class: i === lignes.length - 1 && a.marge != null ? `marge ${a.marge >= 0 ? 'positive' : 'negative'}` : '' }, el('span', {}, t), el('b', {}, v)))));
+  if (!a.devisHT) carte.append(el('p', { class: 'discret' }, 'Montant du devis pas encore connu : je le lis dans ProGBat, ou mets-le dans « Infos du chantier ».'));
+  if (a.parCompagnon?.length) carte.append(el('p', { class: 'discret' }, a.parCompagnon.map((p) => `${p.nom} ${heuresLisibles(p.heures)}`).join(' · ')));
+  return carte;
+}
+
+let filtreRenta = 'actifs';
+
+function ouvrirRentabilite() {
+  afficher('rentabilite');
+  lireAvecCache('rentabilites', { action: 'rentabilites' }, (r) => r.chantiers, dessinerRentabilite);
+}
+
+function dessinerRentabilite(liste, depuisCache, erreur) {
+  if (!liste) {
+    $('#renta-liste').replaceChildren(el('li', { class: 'etat-vide' }, el('span', {}, '📡'),
+      erreur ? `Indisponible : ${erreur.message}` : depuisCache ? 'Chargement…' : 'Pas de réseau pour l\'instant.'));
+    $('#renta-total').replaceChildren();
+    return;
+  }
+  const choisis = liste
+    .map((c) => ({ ...c, statut: statutDe(c.statut) }))
+    .filter((c) => (filtreRenta === 'tous' ? true : filtreRenta === 'Finalisé' ? c.statut === 'Finalisé' : ['En cours', 'Devis accepté'].includes(c.statut)))
+    .sort((a, b) => (b.ratio ?? -1) - (a.ratio ?? -1) || b.depense - a.depense);
+  const avecDevis = choisis.filter((c) => c.devisHT);
+  const devis = avecDevis.reduce((s, c) => s + c.devisHT, 0);
+  const depense = avecDevis.reduce((s, c) => s + c.depense, 0);
+  $('#renta-total').replaceChildren(el('section', { class: 'carte rentabilite' },
+    el('div', { class: 'carte-entete' }, el('h2', {}, `${choisis.length} chantier${choisis.length > 1 ? 's' : ''}`),
+      el('span', { class: 'discret' }, `${avecDevis.length} avec devis connu`)),
+    jaugeRenta(devis ? depense / devis : null),
+    el('ul', { class: 'resultats' },
+      el('li', {}, el('span', {}, 'Devis HT'), el('b', {}, euros(devis))),
+      el('li', {}, el('span', {}, 'Dépensé'), el('b', {}, euros(depense))),
+      el('li', { class: `marge ${devis - depense >= 0 ? 'positive' : 'negative'}` }, el('span', {}, 'Reste'), el('b', {}, euros(devis - depense))))));
+  if (!choisis.length) { $('#renta-liste').replaceChildren(el('li', { class: 'etat-vide' }, 'Aucun chantier ici.')); return; }
+  $('#renta-liste').replaceChildren(...choisis.map((c) => el('li', { class: classeStatut(c.statut) },
+    el('button', { class: 'ligne-renta', onclick: () => ouvrirFiche(c.nom) },
+      el('span', { class: 'corps' },
+        el('div', { class: 'nom' }, c.nom),
+        el('div', { class: 'info' }, c.devisHT ? `Devis ${euros(c.devisHT)} · dépensé ${euros(c.depense)}` : `Devis inconnu · dépensé ${euros(c.depense)}`),
+        jaugeRenta(c.ratio)),
+      el('span', { class: 'droite' },
+        c.marge != null ? el('b', { class: `montant ${c.marge >= 0 ? 'positif' : 'negatif'}` }, `${c.marge >= 0 ? '+' : '−'}${euros(Math.abs(c.marge))}`) : el('span', { class: 'discret' }, '—'),
+        c.ratio != null ? el('small', {}, `${Math.round(c.ratio * 100)} %`) : null)))));
 }
 
 // ===================== Calculs de charpente =====================
@@ -1600,6 +2029,8 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (cible === 'import') ouvrirImport();
       else if (cible === 'bienvenue') ouvrirBienvenue();
       else if (cible === 'calculs') { afficher('calculs'); calculerRampant(); }
+      else if (cible === 'heures') ouvrirHeures();
+      else if (cible === 'rentabilite') ouvrirRentabilite();
       else afficher(cible);
     };
   }
@@ -1649,6 +2080,29 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#fiche-galerie').onclick = () => ouvrirImport(ficheCourante?.nom || '');
   $('#fiche-note').onclick = () => ouvrirNote(ficheCourante?.nom || '');
   $('#fiche-enregistrer').onclick = enregistrerInfosChantier;
+  $('#fiche-archiver').onclick = archiverChantier;
+
+  // Heures, équipe, rentabilité
+  $('#carte-heures').onclick = () => ouvrirHeures();
+  $('#heures-avant').onclick = () => changerJour(-1);
+  $('#heures-apres').onclick = () => changerJour(1);
+  $('#heures-chantier-tous').onchange = (e) => { if (e.target.value) pourTous('chantier', e.target.value); };
+  $('#heures-journee-tous').onclick = () => pourTous('heures', JOURNEE_H);
+  $('#btn-pointer').onclick = enregistrerJournee;
+  $('#recap-avant').onclick = () => decalerMois(-1);
+  $('#recap-apres').onclick = () => decalerMois(1);
+  $('#btn-copier-recap').onclick = copierRecap;
+  $('#btn-equipe').onclick = ouvrirEquipe;
+  $('#equipe-retour').onclick = () => ouvrirHeures(pointage.date || jourIso(new Date()));
+  $('#btn-ajouter-compagnon').onclick = () => { equipeEdition.push({ nom: '', cout: '', actif: true }); dessinerEquipe(); };
+  $('#btn-enregistrer-equipe').onclick = enregistrerEquipe;
+  for (const b of $$('#renta-filtres [data-filtre]')) {
+    b.onclick = () => {
+      filtreRenta = b.dataset.filtre;
+      for (const x of $$('#renta-filtres [data-filtre]')) x.classList.toggle('active', x === b);
+      dessinerRentabilite(lireJson('rentabilites', null), true);
+    };
+  }
 
   // À faire
   $('#btn-ajouter-tache').onclick = ajouterTache;

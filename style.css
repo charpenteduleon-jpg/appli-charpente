@@ -404,3 +404,68 @@ body.masque > :not(#verrou) { filter: blur(18px); }
 .menu .ligne small { display: block; font-size: 12px; }
 .menu .ligne .btn-petit { flex: none; width: auto; margin: 0 0 0 auto; padding: 7px 14px; font-size: 14px; color: #fff; background: var(--rouge); }
 .bandeau .btn-petit { margin-top: 0; }
+
+/* ===================== Statuts ProGBat (1.6) ===================== */
+.statut.attente { background: var(--bord); color: var(--bleu-vif); }
+.liste-cartes li.attente button { border-left-color: var(--bleu-vif); }
+#fiche-statut button { font-size: 12px; }
+.archiver { display: block; margin: 14px auto 0; font-size: 14px; }
+
+/* ===================== Heures (1.6) ===================== */
+.carte-bouton { display: flex; align-items: center; gap: 12px; width: 100%; border: none; text-align: left; font: inherit; color: inherit; }
+.carte-bouton-ico { font-size: 28px; }
+.carte-bouton-texte { flex: 1; min-width: 0; }
+.carte-bouton-texte strong { display: block; font-size: 17px; }
+.carte-bouton-texte small { display: block; color: var(--texte-doux); font-size: 14px; margin-top: 2px; }
+.carte-bouton .chevron { font-size: 26px; color: var(--texte-doux); }
+.carte-bouton.a-faire { box-shadow: inset 4px 0 0 var(--orange), var(--ombre); }
+.carte-bouton.a-faire small { color: var(--orange); font-weight: 600; }
+
+.nav-jour { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 6px; }
+.nav-jour strong { font-size: 18px; text-align: center; flex: 1; }
+.btn-rond.petit { width: 40px; height: 40px; font-size: 22px; }
+.ligne-tous { display: flex; gap: 8px; align-items: center; }
+.ligne-tous select { flex: 1; min-width: 0; }
+.ligne-tous .btn { width: auto; margin: 0; padding: 12px 14px; font-size: 15px; flex: none; }
+
+.compagnon.absent { opacity: .75; }
+.total-compagnon { font-weight: 800; font-size: 17px; font-variant-numeric: tabular-nums; }
+.compagnon.absent .total-compagnon { font-weight: 600; font-size: 14px; color: var(--texte-doux); }
+.ligne-heure { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.ligne-heure select { flex: 1; min-width: 0; font-size: 15px; padding: 11px 32px 11px 12px; }
+.pas { display: flex; align-items: center; flex: none; border: 1px solid var(--bord); border-radius: 12px; overflow: hidden; background: var(--carte); }
+.pas button { width: 40px; height: 44px; border: none; background: var(--bleu-clair); color: var(--bleu-vif); font-size: 22px; font-weight: 700; }
+.pas input[type=text] { width: 52px; border: none; border-radius: 0; padding: 10px 2px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.retirer { flex: none; width: 32px; height: 32px; border: none; border-radius: 50%; background: var(--bord); color: var(--texte-doux); font-size: 18px; line-height: 1; }
+.raccourcis { margin: 10px 0 0; gap: 6px; }
+.raccourcis .puce { padding: 7px 11px; font-size: 13px; }
+
+.jour-semaine { cursor: pointer; }
+.jour-semaine small { color: var(--texte-doux); font-size: 12px; }
+.jour-semaine.actif span { font-weight: 800; color: var(--bleu-vif); }
+.sous-titre-liste span { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--texte-doux); padding-top: 6px; }
+.resultats li small { color: var(--texte-doux); font-size: 13px; }
+.nav-mois { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--texte-doux); }
+.nav-mois .lien { font-size: 22px; padding: 0 6px; }
+
+.equipier .champ { margin: 4px 0; }
+.equipier-bas { display: flex; align-items: flex-end; gap: 12px; }
+.equipier-bas .champ:first-child { flex: 1; }
+.equipier-bas .retirer { margin-bottom: 12px; }
+
+/* ===================== Rentabilité (1.6) ===================== */
+.jauge { height: 10px; border-radius: 999px; background: var(--bord); overflow: hidden; margin: 8px 0 4px; }
+.jauge span { display: block; height: 100%; border-radius: 999px; transition: width .4s; }
+.jauge.vert span { background: var(--vert); }
+.jauge.orange span { background: var(--orange); }
+.jauge.rouge span { background: var(--rouge); }
+.pourcent { font-size: 13px; font-weight: 700; }
+.pourcent.vert, .montant.positif, .marge.positive b { color: var(--vert); }
+.pourcent.orange { color: var(--orange); }
+.pourcent.rouge, .montant.negatif, .marge.negative b { color: var(--rouge); }
+.rentabilite .resultats li { padding: 8px 0; }
+.ligne-renta .corps .jauge { height: 6px; margin: 8px 0 0; }
+.ligne-renta .droite { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.ligne-renta .droite small { color: var(--texte-doux); font-size: 12px; }
+.montant { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.petit-texte { font-size: 12px; margin: 10px 4px; }

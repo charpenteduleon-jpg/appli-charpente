@@ -84,6 +84,12 @@
       <ul id="agenda-liste" class="liste-simple"><li class="squelette" style="height:40px"></li></ul>
     </section>
 
+    <button id="carte-heures" class="carte carte-bouton">
+      <span class="carte-bouton-ico">⏱️</span>
+      <span class="carte-bouton-texte"><strong>Heures du jour</strong><small id="accueil-heures">Pas encore pointées</small></span>
+      <span class="chevron">›</span>
+    </button>
+
     <section id="carte-taches" class="carte">
       <div class="carte-entete"><h2>À faire</h2><button class="lien" data-onglet-vers="taches">Tout voir</button></div>
       <ul id="accueil-taches" class="liste-simple"></ul>
@@ -107,8 +113,9 @@
     <div id="filtres-statut" class="puces defilant">
       <button class="puce active" data-statut="">Tous</button>
       <button class="puce" data-statut="En cours">En cours</button>
-      <button class="puce" data-statut="À venir">À venir</button>
-      <button class="puce" data-statut="Terminé">Terminés</button>
+      <button class="puce" data-statut="Devis accepté">Devis accepté</button>
+      <button class="puce" data-statut="Devis en attente">Devis en attente</button>
+      <button class="puce" data-statut="Finalisé">Finalisés</button>
       <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
     </div>
     <ul id="chantiers-liste" class="liste-cartes"></ul>
@@ -138,7 +145,9 @@
       <div class="champ"><label for="fiche-client">Client</label><input id="fiche-client" type="text" autocomplete="off"></div>
       <div class="champ"><label for="fiche-tel">Téléphone</label><input id="fiche-tel" type="tel" autocomplete="off"></div>
       <div class="champ"><label for="fiche-adresse">Adresse</label><input id="fiche-adresse" type="text" autocomplete="off"></div>
+      <div class="champ"><label for="fiche-devis">Montant du devis HT (€)</label><input id="fiche-devis" type="text" inputmode="decimal" autocomplete="off" placeholder="lu dans ProGBat"></div>
       <button id="fiche-enregistrer" class="btn principal">Enregistrer</button>
+      <button id="fiche-archiver" class="lien discret archiver">Archiver ce chantier (le cacher partout)</button>
     </details>
 
     <div id="fiche-contenu"></div>
@@ -157,6 +166,10 @@
   <!-- ===================== PLUS ===================== -->
   <section id="ecran-plus" class="ecran onglet cache" data-onglet="plus">
     <header class="titre-page"><h1>Plus</h1></header>
+    <ul class="menu">
+      <li><button data-ouvre="heures"><span>⏱️</span>Heures de l'équipe<i>›</i></button></li>
+      <li><button data-ouvre="rentabilite"><span>💶</span>Rentabilité des chantiers<i>›</i></button></li>
+    </ul>
     <ul class="menu">
       <li><button data-ouvre="point"><span>📋</span>Point du jour<i>›</i></button></li>
       <li><button data-ouvre="claude"><span>💬</span>Demander à Claude<i>›</i></button></li>
@@ -285,6 +298,64 @@
       <button class="puce" data-question="Quels devis et factures clients sont en attente dans ProGBat ?">Devis et factures</button>
     </div>
     <button id="btn-ouvrir-claude" class="btn principal">Ouvrir dans Claude</button>
+  </section>
+
+  <!-- ===================== HEURES DE L'ÉQUIPE ===================== -->
+  <section id="ecran-heures" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Heures</h1><p class="discret">Qui a travaillé où, et combien de temps.</p></header>
+    <div class="nav-jour">
+      <button id="heures-avant" class="btn-rond petit" aria-label="Jour précédent">‹</button>
+      <strong id="heures-date"></strong>
+      <button id="heures-apres" class="btn-rond petit" aria-label="Jour suivant">›</button>
+    </div>
+    <section class="carte">
+      <p class="etiquette">Tout le monde au même endroit ?</p>
+      <div class="ligne-tous">
+        <select id="heures-chantier-tous"></select>
+        <button id="heures-journee-tous" class="btn secondaire">Journée</button>
+      </div>
+    </section>
+    <div id="heures-lignes"></div>
+    <button id="btn-pointer" class="btn principal">Enregistrer la journée</button>
+    <section class="carte">
+      <div class="carte-entete"><h2>Semaine</h2><span id="heures-semaine-total" class="discret"></span></div>
+      <ul id="heures-semaine" class="resultats"></ul>
+    </section>
+    <section class="carte">
+      <div class="carte-entete">
+        <h2>Récap du mois</h2>
+        <span class="nav-mois"><button id="recap-avant" class="lien" aria-label="Mois précédent">‹</button><span id="recap-mois"></span><button id="recap-apres" class="lien" aria-label="Mois suivant">›</button></span>
+      </div>
+      <ul id="recap-liste" class="resultats"></ul>
+      <button id="btn-copier-recap" class="btn secondaire">📋 Copier le récap pour Nelly</button>
+    </section>
+    <button id="btn-equipe" class="btn secondaire">👷 Équipe et coûts horaires</button>
+  </section>
+
+  <!-- ===================== ÉQUIPE ===================== -->
+  <section id="ecran-equipe" class="ecran cache" data-onglet="plus">
+    <button class="retour" id="equipe-retour">‹ Heures</button>
+    <header class="titre-page compact"><h1>Équipe</h1>
+      <p class="discret">Coût horaire chargé de chacun (salaire + charges, Nelly peut te le donner). Il sert à calculer la rentabilité.</p></header>
+    <div id="equipe-liste"></div>
+    <button id="btn-ajouter-compagnon" class="btn secondaire">＋ Ajouter quelqu'un</button>
+    <button id="btn-enregistrer-equipe" class="btn principal">Enregistrer</button>
+  </section>
+
+  <!-- ===================== RENTABILITÉ ===================== -->
+  <section id="ecran-rentabilite" class="ecran cache" data-onglet="plus">
+    <button class="retour" data-retour>‹ Retour</button>
+    <header class="titre-page compact"><h1>Rentabilité</h1>
+      <p class="discret">Devis HT comparé aux achats et aux heures déjà passées.</p></header>
+    <div id="renta-total"></div>
+    <div id="renta-filtres" class="segment">
+      <button class="active" data-filtre="actifs">En cours</button>
+      <button data-filtre="Finalisé">Finalisés</button>
+      <button data-filtre="tous">Tous</button>
+    </div>
+    <ul id="renta-liste" class="liste-cartes"></ul>
+    <p class="discret petit-texte">Achats : registre des factures saisies (depuis octobre 2026). Heures : pointage de l'appli × coût horaire de chacun.</p>
   </section>
 
   <!-- ===================== CALCULS DE CHARPENTE ===================== -->
