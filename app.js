@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.15.0';
+const VERSION = '1.16.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -3591,12 +3591,20 @@ function assurerChantierRdv() {
   return nom;
 }
 
-async function photoRdv(fichier, notesPapier) {
+// Photos ou notes déjà dans la galerie (prises avant le rendez-vous, ou envoyées par le client) : plusieurs d'un coup.
+async function galerieRdv(fichiers, notesPapier) {
+  if (!fichiers.length || !assurerChantierRdv()) return;
+  if (fichiers.length > 1) toast(`${fichiers.length} ${notesPapier ? 'pages' : 'photos'} en cours d'envoi…`);
+  for (const f of fichiers) await photoRdv(f, notesPapier, true);
+}
+
+async function photoRdv(fichier, notesPapier, depuisGalerie = false) {
   const chantier = assurerChantierRdv();
   if (!chantier || !fichier) return;
   try {
     const data = await traiterImage(fichier, notesPapier);
-    const facade = notesPapier ? '' : orientationFacade();
+    // La boussole ne vaut que pour une photo prise à l'instant, pas pour une photo de la galerie.
+    const facade = notesPapier || depuisGalerie ? '' : orientationFacade();
     const envoi = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: 1, page: 1, type: '', chantier,
       note: notesPapier ? 'Notes papier du rendez-vous' : `Photo du rendez-vous${facade ? ` – ${facade}` : ''}`,
       fichier: { mime: 'image/jpeg', data: data.split(',')[1] } };
@@ -4685,6 +4693,10 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#rdv-notes').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-input').click(); };
   $('#rdv-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, false); };
   $('#rdv-notes-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, true); };
+  $('#rdv-galerie').onclick = () => { if (assurerChantierRdv()) $('#rdv-galerie-input').click(); };
+  $('#rdv-notes-galerie').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-galerie-input').click(); };
+  $('#rdv-galerie-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; galerieRdv(f, false); };
+  $('#rdv-notes-galerie-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; galerieRdv(f, true); };
   $('#rdv-mesures').onclick = mesuresRdv;
   $('#rdv-micro').onclick = dicterRdv;
   $('#rdv-terminer').onclick = terminerRdv;

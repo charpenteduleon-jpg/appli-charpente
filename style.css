@@ -866,3 +866,7 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .releves-fiche .fichier-texte span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .releves-fiche .fichier-texte small { color: var(--texte-doux); font-size: 12px; margin-top: 2px; }
 .releves-fiche .ouvrir { margin-left: auto; color: var(--bleu-vif); font-weight: 600; font-size: 14px; white-space: nowrap; }
+
+/* 1.16 : galerie dans le rendez-vous */
+.rdv-galerie { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 4px; }
+.rdv-galerie .btn { margin: 0; font-size: 14px; padding: 10px 8px; }

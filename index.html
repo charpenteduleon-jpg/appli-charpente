@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.15.0">
+  <meta name="version-appli" content="1.16.0">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -234,7 +234,7 @@
     <p id="astuce-annoter" class="astuce cache">✏️ Touche une photo pour dessiner dessus : flèche, cote, cercle, texte.</p>
     <div class="deux-boutons">
       <button id="btn-ajouter-page" class="btn secondaire">📷 Prendre en photo</button>
-      <button id="btn-galerie" class="btn secondaire">🖼️ Photos / fichiers</button>
+      <button id="btn-galerie" class="btn secondaire">🖼️ Galerie / fichiers</button>
     </div>
 
     <div id="bloc-scan" class="ligne-option">
@@ -332,6 +332,10 @@
       <button id="rdv-photo" class="action"><span class="tuile t-or">📷</span>Photos<small id="rdv-compte-photos"></small></button>
       <button id="rdv-mesures" class="action"><span class="tuile t-bleu">📏</span>Mesures<small id="rdv-compte-releves"></small></button>
       <button id="rdv-notes" class="action"><span class="tuile t-violet">📝</span>Notes papier<small id="rdv-compte-notes"></small></button>
+    </div>
+    <div class="rdv-galerie">
+      <button id="rdv-galerie" class="btn secondaire">🖼️ Photos galerie</button>
+      <button id="rdv-notes-galerie" class="btn secondaire">🖼️ Notes galerie</button>
     </div>
     <p class="discret petit-texte centre">Chaque photo part tout de suite dans le dossier du chantier : pas besoin de revenir. Plusieurs façades ? Touche « Mesures » une fois par façade : la boussole la nomme toute seule.</p>
 
@@ -769,6 +773,8 @@
   <input id="gabarit-photo-input" class="cache" type="file" accept="image/*">
   <input id="rdv-photo-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="rdv-notes-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="rdv-galerie-input" class="cache" type="file" accept="image/*" multiple>
+  <input id="rdv-notes-galerie-input" class="cache" type="file" accept="image/*" multiple>
 
   <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
   <div id="confettis" class="confettis" aria-hidden="true"></div>
