@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.16.1';
+const VERSION = '1.17.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -585,6 +585,11 @@ function rafraichirAccueil() {
   const h = maintenant.getHours();
   $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
+  if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || innerWidth >= 1100) {
+    // Sur le PC, la même appli s'installe depuis Edge.
+    $('#bandeau-installer strong').textContent = "Installe l'appli sur ce PC";
+    $('#bandeau-installer p').innerHTML = "Dans Edge, clique sur l'icône <b>« Installer »</b> au bout de la barre d'adresse (ou menu ··· › Applications › Installer cette appli).";
+  }
   majBandeauFaceId();
   majEnvois();
   chargerMeteo();

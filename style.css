@@ -870,3 +870,70 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 /* 1.16 : galerie dans le rendez-vous */
 .rdv-galerie { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 4px; }
 .rdv-galerie .btn { margin: 0; font-size: 14px; padding: 10px 8px; }
+
+/* 1.17 : vraie mise en page PC (à partir de 1 100 px). Menu fixe à gauche au lieu de la barre du bas, écrans larges
+   sur plusieurs colonnes. L'iPhone ne change pas. */
+@media (min-width: 1100px) {
+  :root { --menu-pc: 236px; }
+  body { padding-left: var(--menu-pc); }
+  body.sans-barre { padding-left: 0; }
+  .barre-onglets {
+    top: 0; bottom: 0; left: 0; right: auto; width: var(--menu-pc); height: auto; box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 108px 14px 20px;
+    border-radius: 0; border: none; border-right: 1px solid var(--bord); background: var(--carte); box-shadow: none;
+  }
+  .barre-onglets::before { content: ""; position: absolute; top: 24px; left: 26px; width: 132px; height: 62px; background: url(logo.svg) no-repeat left center / contain; }
+  .barre-onglets button { flex-direction: row; justify-content: flex-start; gap: 12px; font-size: 15px; padding: 11px 14px; border-radius: 12px; text-align: left; }
+  .barre-onglets button:hover { background: var(--fond); }
+  .barre-onglets button.active { background: color-mix(in srgb, var(--bleu) 10%, transparent); }
+  .barre-onglets button.active::after { display: none; }
+  .barre-onglets svg { width: 22px; height: 22px; flex: none; }
+  .barre-onglets .pastille { position: static; margin-left: auto; }
+  .barre-onglets .onglet-central { order: -1; margin-bottom: 12px; padding: 13px 14px; font-size: 14px; white-space: nowrap; color: #fff; background: linear-gradient(145deg, #2c4686, #1a2850); box-shadow: 0 6px 16px rgba(26,40,80,.3), inset 0 0 0 1px #d5ac83; }
+  .barre-onglets .onglet-central:hover { background: linear-gradient(145deg, #34509a, #1f3060); }
+  .barre-onglets .onglet-central svg { margin-top: 0; padding: 0; width: 22px; height: 22px; border-radius: 0; background: none; box-shadow: none; stroke-width: 2.4; }
+  .barre-onglets .onglet-central::after { content: "Déposer un document"; font-weight: 700; }
+  .onglet-central:active svg { transform: none; }
+
+  .ecran { max-width: 1240px; padding: 28px 36px 48px; margin-left: auto; margin-right: auto; }
+  .toast { left: calc(var(--menu-pc) + 50% - (var(--menu-pc) / 2) - 220px); right: auto; width: 440px; bottom: 28px; }
+  body.sans-barre .toast { left: calc(50% - 220px); bottom: 100px; }
+  .pied-fixe { left: var(--menu-pc); }
+  body.sans-barre .pied-fixe { left: 0; }
+  .titre-page h1 { font-size: 30px; }
+
+  /* Accueil : tableau de bord sur 12 colonnes */
+  #ecran-accueil { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px 20px; align-content: start; }
+  #ecran-accueil > * { grid-column: 1 / -1; margin: 0; }
+  #ecran-accueil > #btn-rdv, #ecran-accueil > #btn-deposer { grid-column: span 6; }
+  #ecran-accueil > #carte-meteo { grid-column: span 7; }
+  #ecran-accueil > #carte-agenda { grid-column: span 5; }
+  #ecran-accueil > #carte-heures { grid-column: span 4; }
+  #ecran-accueil .hero { padding-bottom: 20px; }  #ecran-accueil > #carte-taches { grid-column: span 8; }
+  #ecran-accueil .hero { margin: 0; }
+  #ecran-accueil .actions-rapides { gap: 16px; }
+  .action { transition: transform .15s; }
+  .action:hover, .deposer:hover, .carte-bouton:hover, .liste-cartes li button:hover { transform: translateY(-2px); }
+
+  /* Chantiers : cartes en grille */
+  #chantiers-liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+  #chantiers-liste li button { margin: 0; height: 100%; }
+  #chantiers-liste > :not(li) { grid-column: 1 / -1; }
+
+  /* Fiche chantier : boutons sur une ligne, contenu sur deux colonnes */
+  .boutons-fiche { margin: 4px 0 6px; padding: 4px 0; flex-wrap: wrap; overflow: visible; }
+  .bouton-rond { min-width: 96px; }
+  #ecran-fiche .segment { max-width: 640px; }
+  #fiche-contenu { columns: 2 420px; column-gap: 20px; }
+  #fiche-contenu > * { break-inside: avoid; margin-top: 0; margin-bottom: 18px; }
+  #fiche-contenu > .carte:first-child { margin-top: 12px; }
+
+  /* À faire, Plus et réglages : largeur de lecture */
+  #ecran-taches, #ecran-reglages, #ecran-note, #ecran-point, #ecran-claude, #ecran-heures, #ecran-equipe { max-width: 960px; }
+  #ecran-plus { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; align-content: start; }
+  #ecran-plus > .titre-page, #ecran-plus > .logo-bas, #ecran-plus > #version { grid-column: 1 / -1; }
+  #ecran-plus > .menu:nth-of-type(2) { grid-row: span 2; }
+}
+@media (min-width: 1100px) and (prefers-color-scheme: dark) {
+  .barre-onglets::before { background-image: url(logo-blanc.svg); }
+}
