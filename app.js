@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.8.1';
+const VERSION = '1.9.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -508,9 +508,8 @@ function majEtat() {
   const etat = $('#etat');
   if (!reglages.ok()) { etat.textContent = 'À appairer : Plus › Réglages'; etat.className = 'etat hors'; }
   else if (!navigator.onLine) { etat.textContent = 'Hors ligne : tout est gardé et partira plus tard'; etat.className = 'etat hors'; }
-  else { etat.textContent = resumeMeteo || 'Connecté'; etat.className = resumeMeteo ? 'etat meteo-resume' : 'etat ok'; }
+  else { etat.textContent = 'Connecté'; etat.className = 'etat ok'; }
 }
-let resumeMeteo = '';
 
 // ===================== Dates =====================
 function quandLisible(ms) {
@@ -583,8 +582,7 @@ function rafraichirAccueil() {
   const maintenant = new Date();
   $('#accueil-date').textContent = maintenant.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const h = maintenant.getHours();
-  // Trait d'union insécable : « Jean‑Phi » ne se coupe jamais en deux lignes.
-  $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean‑Phi' : 'Bonsoir Jean‑Phi';
+  $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
   majBandeauFaceId();
   majEnvois();
@@ -675,15 +673,6 @@ function dessinerMeteo({ lieu, m, quand: majMeteo }) {
         el('div', {}, `${libelle} · ${Math.round(m.daily.temperature_2m_min[0])}° / ${Math.round(m.daily.temperature_2m_max[0])}°`),
         el('div', {}, `Vent ${Math.round(m.current.wind_speed_10m)} km/h · rafales ${Math.round(m.current.wind_gusts_10m)} km/h`),
         el('div', {}, texteDePluie))));
-  // Résumé d'une ligne pour l'en-tête : ce qui compte en ouvrant l'appli le matin.
-  const premiereForte = reste.find((h) => h.rafale >= SEUIL_RAFALES);
-  const soir = new Date().getHours() >= 18;
-  resumeMeteo = `${ico} ${Math.round(m.current.temperature_2m)}° · ${soir
-    ? (demainRafales >= SEUIL_RAFALES ? `demain rafales ${demainRafales} km/h` : 'demain vent calme pour lever')
-    : premiereForte
-      ? `rafales ${Math.round(pic.rafale)} km/h ${premiereForte.t <= maintenant ? 'en ce moment' : `dès ${new Date(premiereForte.t).getHours()} h`}`
-      : 'vent calme pour lever'}`;
-  majEtat();
   if (pic && pic.rafale >= SEUIL_RAFALES) {
     const h = new Date(pic.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     bloc.append(el('div', { class: 'alerte' }, `⚠️ Rafales jusqu'à ${Math.round(pic.rafale)} km/h vers ${h} : levage déconseillé`));
@@ -692,36 +681,8 @@ function dessinerMeteo({ lieu, m, quand: majMeteo }) {
   } else {
     bloc.append(el('div', { class: 'alerte ok' }, `✓ Vent calme pour le levage aujourd'hui (demain rafales ${demainRafales} km/h)`));
   }
-  bloc.append(bandeRafales(heures));
   bloc.append(el('p', { class: 'source-meteo' }, `Météo-France · mise à jour à ${new Date(majMeteo).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`));
   $('#meteo-contenu').replaceWith(bloc);
-}
-
-// Bande des rafales de 7 h à 19 h, heure par heure : on voit d'un coup d'œil le créneau pour lever.
-// Après 18 h, c'est la journée de demain qui s'affiche. Vert sous 35 km/h, orange jusqu'au seuil, rouge au-delà.
-const RAFALES_ORANGE = 35;
-function bandeRafales(heures) {
-  const maintenant = new Date();
-  const jourVu = new Date(maintenant);
-  if (maintenant.getHours() >= 18) jourVu.setDate(jourVu.getDate() + 1);
-  const debut = new Date(jourVu); debut.setHours(7, 0, 0, 0);
-  const fin = new Date(jourVu); fin.setHours(19, 0, 0, 0);
-  const plage = heures.filter((h) => h.t >= debut.getTime() && h.t <= fin.getTime());
-  if (!plage.length) return el('span');
-  const max = Math.max(SEUIL_RAFALES + 10, ...plage.map((h) => h.rafale));
-  const heureCourante = maintenant.getHours();
-  const barres = plage.map((h) => {
-    const heure = new Date(h.t).getHours();
-    const niveau = h.rafale >= SEUIL_RAFALES ? 'rouge' : h.rafale >= RAFALES_ORANGE ? 'orange' : 'vert';
-    const passee = jourVu.toDateString() === maintenant.toDateString() && heure < heureCourante;
-    return el('div', { class: `rafale ${niveau}${passee ? ' passee' : ''}`, title: `${heure} h : rafales ${Math.round(h.rafale)} km/h` },
-      el('span', { class: 'barre', style: `height:${Math.max(8, Math.round((h.rafale / max) * 100))}%` }),
-      el('small', {}, heure % 2 ? '' : `${heure}h`));
-  });
-  const titre = jourVu.toDateString() === maintenant.toDateString() ? 'Rafales aujourd\'hui' : 'Rafales demain';
-  return el('div', { class: 'bande-rafales', role: 'img', 'aria-label': `${titre} : ${plage.map((h) => `${new Date(h.t).getHours()} h ${Math.round(h.rafale)}`).join(', ')} km/h` },
-    el('div', { class: 'bande-titre' }, el('span', {}, titre), el('span', { class: 'legende' }, el('i', { class: 'vert' }), 'levage', el('i', { class: 'rouge' }), `≥ ${SEUIL_RAFALES} km/h`)),
-    el('div', { class: 'barres' }, ...barres));
 }
 
 // --- Agenda ---
@@ -893,7 +854,11 @@ async function ajouterFichiers(fichiers) {
 async function retraiterPages() {
   const scan = $('#mode-scan').checked;
   ecrire('mode-scan', scan ? '1' : '0');
-  for (const p of doc.pages) if (p.type === 'image' && p.source) p.data = await traiterImage(p.source, scan);
+  for (const p of doc.pages) {
+    if (p.type !== 'image' || !p.source) continue;
+    const brute = await traiterImage(p.source, scan);
+    if (p.formes?.length) { p.base = brute; p.data = await rendreAnnotations(brute, p.formes); } else p.data = brute;
+  }
   dessinerPages();
 }
 
@@ -903,8 +868,11 @@ function dessinerPages() {
     zone.replaceChildren(el('div', { class: 'pages-vide' }, doc.action === 'chantier' ? 'Aucune photo pour l\'instant' : 'Aucune page pour l\'instant'));
   } else {
     zone.replaceChildren(...doc.pages.map((p, i) => el('div', { class: 'page' },
-      p.type === 'pdf' ? el('div', { class: 'pdf' }, `📄\n${p.nom}`) : el('img', { src: p.data, alt: `Page ${i + 1}` }),
+      p.type === 'pdf' ? el('div', { class: 'pdf' }, `📄\n${p.nom}`)
+        : el('button', { class: 'page-image', 'aria-label': `Dessiner sur la page ${i + 1}`, onclick: () => ouvrirAnnotation(i) },
+          el('img', { src: p.data, alt: `Page ${i + 1}` })),
       el('span', { class: 'num' }, doc.action === 'chantier' ? `${i + 1}` : `Page ${i + 1}`),
+      p.formes?.length ? el('span', { class: 'annote' }, '✏️') : null,
       el('button', { class: 'suppr', 'aria-label': 'Retirer', onclick: () => { doc.pages.splice(i, 1); dessinerPages(); } }, '×'))),
       // Case « + » juste après la dernière page : un doigt pour photographier la page suivante.
       el('button', { class: 'page-plus', 'aria-label': doc.action === 'chantier' ? 'Ajouter une photo' : 'Ajouter une page',
@@ -918,6 +886,212 @@ function dessinerPages() {
     : (chantier ? '📷 Encore une photo' : '📷 Ajouter une page');
   $('#btn-envoyer-doc').disabled = n === 0;
   $('#btn-envoyer-doc').textContent = n > 1 ? `Ajouter (${n} ${doc.action === 'chantier' ? 'photos' : 'pages'})` : 'Ajouter';
+  $('#astuce-annoter').classList.toggle('cache', !doc.pages.some((p) => p.type === 'image'));
+}
+
+// ===================== Dessiner sur une photo =====================
+// Flèche, cote, cercle, trait ou texte, pour montrer un défaut ou une mesure. Les dessins sont gardés à part
+// (la photo d'origine aussi) : on peut les reprendre, et ils survivent au passage en mode scan.
+const COULEURS_ANNOT = ['#ff3b30', '#ffcc00', '#ffffff', '#0a84ff'];
+const annot = { index: -1, img: null, formes: [], outil: 'fleche', couleur: COULEURS_ANNOT[0], enCours: null, image: 0, precedent: '' };
+
+function chargerDataUrl(src) {
+  return new Promise((ok, ko) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.onerror = () => ko(new Error('Photo illisible'));
+    i.src = src;
+  });
+}
+
+const epaisseurTrait = (c) => Math.max(4, Math.round(Math.max(c.width, c.height) / 125));
+
+// Texte sur une pastille sombre : lisible sur n'importe quel fond.
+function etiquette(ctx, texte, x, y, ep, couleur) {
+  ctx.save();
+  ctx.shadowBlur = 0;
+  const taille = ep * 6;
+  ctx.font = `700 ${taille}px -apple-system, "Segoe UI", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const l = ctx.measureText(texte).width + taille * 0.9, h = taille * 1.45;
+  ctx.fillStyle = 'rgba(0,0,0,.7)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x - l / 2, y - h / 2, l, h, h / 2); else ctx.rect(x - l / 2, y - h / 2, l, h);
+  ctx.fill();
+  ctx.fillStyle = couleur;
+  ctx.fillText(texte, x, y + taille * 0.04);
+  ctx.restore();
+}
+
+function dessinerForme(ctx, f, ep) {
+  ctx.save();
+  ctx.strokeStyle = f.couleur;
+  ctx.lineWidth = ep;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.shadowColor = 'rgba(0,0,0,.55)';
+  ctx.shadowBlur = ep * 1.2;
+  const pointe = (de, vers) => {
+    const ang = Math.atan2(vers.y - de.y, vers.x - de.x), l = ep * 4.5;
+    ctx.beginPath();
+    ctx.moveTo(vers.x - l * Math.cos(ang - 0.45), vers.y - l * Math.sin(ang - 0.45));
+    ctx.lineTo(vers.x, vers.y);
+    ctx.lineTo(vers.x - l * Math.cos(ang + 0.45), vers.y - l * Math.sin(ang + 0.45));
+    ctx.stroke();
+  };
+  if (f.type === 'trait') {
+    ctx.beginPath();
+    f.pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.stroke();
+  } else if (f.type === 'fleche' || f.type === 'cote') {
+    ctx.beginPath();
+    ctx.moveTo(f.a.x, f.a.y);
+    ctx.lineTo(f.b.x, f.b.y);
+    ctx.stroke();
+    pointe(f.a, f.b);
+    if (f.type === 'cote') {
+      pointe(f.b, f.a);
+      // Traits de rappel aux deux bouts, comme sur un plan.
+      const ang = Math.atan2(f.b.y - f.a.y, f.b.x - f.a.x) + Math.PI / 2, l = ep * 3.5;
+      for (const p of [f.a, f.b]) {
+        ctx.beginPath();
+        ctx.moveTo(p.x - l * Math.cos(ang), p.y - l * Math.sin(ang));
+        ctx.lineTo(p.x + l * Math.cos(ang), p.y + l * Math.sin(ang));
+        ctx.stroke();
+      }
+      if (f.texte) etiquette(ctx, f.texte, (f.a.x + f.b.x) / 2, (f.a.y + f.b.y) / 2, ep, f.couleur);
+    }
+  } else if (f.type === 'cercle') {
+    ctx.beginPath();
+    ctx.ellipse((f.a.x + f.b.x) / 2, (f.a.y + f.b.y) / 2, Math.abs(f.b.x - f.a.x) / 2 + 1, Math.abs(f.b.y - f.a.y) / 2 + 1, 0, 0, 2 * Math.PI);
+    ctx.stroke();
+  } else if (f.type === 'texte') {
+    etiquette(ctx, f.texte, f.a.x, f.a.y, ep, f.couleur);
+  }
+  ctx.restore();
+}
+
+// Photo d'origine + dessins → nouvelle photo (sert aussi quand le mode scan est changé après coup).
+async function rendreAnnotations(dataUrl, formes) {
+  const img = await chargerDataUrl(dataUrl);
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const ep = epaisseurTrait(c);
+  for (const f of formes) dessinerForme(ctx, f, ep);
+  return c.toDataURL('image/jpeg', QUALITE_JPEG);
+}
+
+async function ouvrirAnnotation(index) {
+  const p = doc.pages[index];
+  if (!p || p.type !== 'image') return;
+  try { annot.img = await chargerDataUrl(p.base || p.data); } catch (e) { toast(e.message, 'erreur'); return; }
+  annot.index = index;
+  annot.formes = structuredClone(p.formes || []);
+  annot.enCours = null;
+  const c = $('#annot-canvas');
+  c.width = annot.img.width;
+  c.height = annot.img.height;
+  annot.precedent = ecranPrecedent;
+  afficher('annoter');
+  redessinerAnnotation();
+}
+
+function redessinerAnnotation() {
+  const c = $('#annot-canvas');
+  if (!annot.img) return;
+  const ctx = c.getContext('2d');
+  const ep = epaisseurTrait(c);
+  ctx.drawImage(annot.img, 0, 0);
+  for (const f of annot.formes) dessinerForme(ctx, f, ep);
+  if (annot.enCours) dessinerForme(ctx, annot.enCours, ep);
+  $('#annot-defaire').disabled = !annot.formes.length;
+}
+
+function pointAnnotation(ev) {
+  const c = $('#annot-canvas'), r = c.getBoundingClientRect();
+  return { x: Math.round((ev.clientX - r.left) * c.width / r.width), y: Math.round((ev.clientY - r.top) * c.height / r.height) };
+}
+
+function annotDebut(ev) {
+  ev.preventDefault();
+  const p = pointAnnotation(ev);
+  if (annot.outil === 'texte') {
+    const t = prompt('Texte à écrire sur la photo :');
+    if (t && t.trim()) annot.formes.push({ type: 'texte', couleur: annot.couleur, a: p, texte: t.trim().slice(0, 60) });
+    redessinerAnnotation();
+    return;
+  }
+  try { ev.target.setPointerCapture(ev.pointerId); } catch { /* sans importance */ }
+  annot.enCours = annot.outil === 'trait'
+    ? { type: 'trait', couleur: annot.couleur, pts: [p] }
+    : { type: annot.outil, couleur: annot.couleur, a: p, b: p };
+}
+
+function annotMouvement(ev) {
+  if (!annot.enCours) return;
+  ev.preventDefault();
+  const p = pointAnnotation(ev);
+  if (annot.enCours.type === 'trait') annot.enCours.pts.push(p); else annot.enCours.b = p;
+  if (!annot.image) annot.image = requestAnimationFrame(() => { annot.image = 0; redessinerAnnotation(); });
+}
+
+function annotFin() {
+  const f = annot.enCours;
+  annot.enCours = null;
+  if (!f) return;
+  const min = epaisseurTrait($('#annot-canvas')) * 3;
+  const assezGrand = f.type === 'trait' ? f.pts.length > 2 : Math.hypot(f.b.x - f.a.x, f.b.y - f.a.y) > min;
+  if (assezGrand) {
+    if (f.type === 'cote') {
+      redessinerAnnotation();
+      const t = prompt('La mesure (ex. 2,40 m) :', '');
+      if (t === null) { redessinerAnnotation(); return; }
+      f.texte = t.trim().slice(0, 30);
+    }
+    annot.formes.push(f);
+  }
+  redessinerAnnotation();
+}
+
+function choisirOutil(outil) {
+  annot.outil = outil;
+  ecrire('annot-outil', outil);
+  for (const b of $$('#annot-outils [data-outil]')) b.classList.toggle('active', b.dataset.outil === outil);
+}
+
+function choisirCouleur(couleur) {
+  annot.couleur = couleur;
+  ecrire('annot-couleur', couleur);
+  for (const b of $$('#annot-couleurs [data-couleur]')) b.classList.toggle('active', b.dataset.couleur === couleur);
+}
+
+function fermerAnnotation() {
+  annot.img = null;
+  annot.formes = [];
+  annot.enCours = null;
+  afficher('document');
+  ecranPrecedent = annot.precedent; // « Annuler » du document ramène toujours là d'où il venait
+  dessinerPages();
+}
+
+function validerAnnotation() {
+  const p = doc.pages[annot.index];
+  if (p && annot.img) {
+    if (annot.formes.length) {
+      p.base = p.base || p.data;
+      p.formes = annot.formes;
+      p.data = $('#annot-canvas').toDataURL('image/jpeg', QUALITE_JPEG);
+    } else if (p.base) {
+      p.data = p.base;
+      delete p.base;
+      delete p.formes;
+    }
+  }
+  fermerAnnotation();
 }
 
 async function envoyerDocument() {
@@ -1127,14 +1301,7 @@ function remplirSelectChantiers(select, choisi, premier) {
   select.replaceChildren(...options);
 }
 
-// Rubriques des chantiers : « À venir » regroupe les devis signés et ceux qui attendent une réponse.
-const GROUPES_CHANTIERS = {
-  'en-cours': [['En cours', '']],
-  'a-venir': [['Devis accepté', 'Signés, à démarrer'], ['Devis en attente', 'Devis envoyés, en attente de réponse']],
-  termines: [['Finalisé', '']],
-};
-let groupeChantiers = lire('onglet-chantiers', 'en-cours');
-if (!GROUPES_CHANTIERS[groupeChantiers]) groupeChantiers = 'en-cours';
+let filtreStatut = '';
 let triDistance = false;
 
 async function ouvrirChantiers() {
@@ -1149,77 +1316,42 @@ const couleurDe = (texte) => COULEURS[[...texte].reduce((s, c) => s + c.charCode
 const initiales = (nom) => nom.split(/[\s-]+/).filter((m) => /^[A-Za-zÀ-ÿ]/.test(m)).slice(0, 2).map((m) => m[0].toUpperCase()).join('');
 const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'devis-attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
 
-const groupeDe = (statut) => Object.keys(GROUPES_CHANTIERS).find((g) => GROUPES_CHANTIERS[g].some(([s]) => s === statut)) || 'en-cours';
+// « Tous » montre tout sauf les chantiers finalisés, qui ont leur propre onglet.
+const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : statutDe(c.statut) !== 'Finalisé');
 
-// Dernier jour pointé sur chaque chantier : le chantier où l'équipe était hier remonte en tête.
-function derniersPointages() {
-  const d = {};
-  for (const h of toutesHeures()) if (!d[h.chantier] || h.date > d[h.chantier]) d[h.chantier] = h.date;
-  return d;
-}
-
-function depuisLisible(iso) {
-  const n = Math.round((dateDeIso(jourIso(new Date())) - dateDeIso(iso)) / 864e5);
-  return n <= 0 ? 'pointé aujourd\'hui' : n === 1 ? 'pointé hier' : `pointé il y a ${n} j`;
-}
-
-function majCompteursChantiers() {
+function majCompteursStatut() {
   const liste = listeChantiers();
-  for (const b of $$('#onglets-chantiers [data-groupe]')) {
+  for (const b of $$('#filtres-statut [data-statut]')) {
     if (!b.dataset.libelle) b.dataset.libelle = b.textContent;
-    const n = liste.filter((c) => groupeDe(statutDe(c.statut)) === b.dataset.groupe).length;
-    b.replaceChildren(b.dataset.libelle, liste.length ? el('span', { class: 'compte' }, String(n)) : '');
-    b.classList.toggle('active', b.dataset.groupe === groupeChantiers);
-    b.setAttribute('aria-selected', String(b.dataset.groupe === groupeChantiers));
+    const n = liste.filter((c) => dansFiltre(c, b.dataset.statut)).length;
+    b.textContent = liste.length ? `${b.dataset.libelle} · ${n}` : b.dataset.libelle;
   }
-}
-
-function carteChantier(c, avecStatut, pointages) {
-  const infos = [c.client];
-  if (pointages[c.nom] && c.statut === 'En cours') infos.push(depuisLisible(pointages[c.nom]));
-  return el('li', { class: classeStatut(c.statut) },
-    el('button', { onclick: () => ouvrirFiche(c.nom) },
-      el('span', { class: 'avatar', style: `background:${couleurDe(c.nom)}` }, initiales(c.nom) || '🏗️'),
-      el('span', { class: 'corps' }, el('div', { class: 'nom' }, c.nom), el('div', { class: 'info' }, infos.filter(Boolean).join(' · ') || ' ')),
-      el('span', { class: 'droite' },
-        avecStatut ? el('span', { class: `statut ${classeStatut(c.statut)}` }, STATUTS_COURTS[c.statut] || c.statut) : null,
-        c.distance != null ? el('span', { class: 'dist' }, distanceLisible(c.distance)) : null,
-        el('span', { class: 'chevron-liste' }, '›'))));
 }
 
 function dessinerChantiers() {
-  majCompteursChantiers();
+  majCompteursStatut();
   const filtre = $('#chantiers-recherche').value.trim().toLowerCase();
   const pos = triDistance ? dernierePosition : null;
-  const pointages = derniersPointages();
-  // En cherchant, on fouille toutes les rubriques (le statut s'affiche alors sur chaque carte).
   const elements = listeChantiers()
     .map((c) => ({ ...c, statut: statutDe(c.statut) }))
-    .filter((c) => (filtre ? `${c.nom} ${c.client}`.toLowerCase().includes(filtre) : groupeDe(c.statut) === groupeChantiers))
-    .map((c) => ({ ...c, distance: pos && c.lat != null ? distanceM(pos.lat, pos.lon, c.lat, c.lon) : null }))
-    .sort((a, b) => (pos ? (a.distance ?? 1e12) - (b.distance ?? 1e12) : 0)
-      || (pointages[b.nom] || '').localeCompare(pointages[a.nom] || '')
-      || a.nom.localeCompare(b.nom, 'fr'));
-  $('#onglets-chantiers').classList.toggle('estompe', !!filtre);
+    .filter((c) => dansFiltre(c, filtreStatut))
+    .filter((c) => !filtre || `${c.nom} ${c.client}`.toLowerCase().includes(filtre))
+    .map((c) => ({ ...c, distance: pos && c.lat != null ? distanceM(pos.lat, pos.lon, c.lat, c.lon) : null }));
+  if (pos) elements.sort((a, b) => (a.distance ?? 1e12) - (b.distance ?? 1e12));
 
   const ul = $('#chantiers-liste');
   if (!elements.length) {
-    const vides = { 'en-cours': 'Aucun chantier en cours.', 'a-venir': 'Rien à venir pour l\'instant.', termines: 'Aucun chantier terminé.' };
     ul.replaceChildren(el('li', { class: 'etat-vide' }, el('span', {}, '🏗️'),
-      !reglages.ok() ? 'Connecte d\'abord le serveur (Plus › Réglages).' : filtre ? 'Aucun chantier ne correspond.' : vides[groupeChantiers]));
+      !reglages.ok() ? 'Connecte d\'abord le serveur (Plus › Réglages).' : filtre || filtreStatut ? 'Aucun chantier ne correspond.' : 'Aucun chantier pour l\'instant.'));
     return;
   }
-  if (filtre) { ul.replaceChildren(...elements.map((c) => carteChantier(c, true, pointages))); return; }
-  // Sous-titres seulement quand la rubrique en a plusieurs (« À venir »).
-  const sections = GROUPES_CHANTIERS[groupeChantiers];
-  const enfants = [];
-  for (const [statut, titre] of sections) {
-    const duStatut = elements.filter((c) => c.statut === statut);
-    if (!duStatut.length) continue;
-    if (titre) enfants.push(el('li', { class: 'titre-groupe' }, titre, el('span', {}, String(duStatut.length))));
-    enfants.push(...duStatut.map((c) => carteChantier(c, false, pointages)));
-  }
-  ul.replaceChildren(...enfants);
+  ul.replaceChildren(...elements.map((c) => el('li', { class: classeStatut(c.statut) },
+    el('button', { onclick: () => ouvrirFiche(c.nom) },
+      el('span', { class: 'avatar', style: `background:${couleurDe(c.nom)}` }, initiales(c.nom) || '🏗️'),
+      el('span', { class: 'corps' }, el('div', { class: 'nom' }, c.nom), el('div', { class: 'info' }, c.client || ' ')),
+      el('span', { class: 'droite' },
+        c.statut ? el('span', { class: `statut ${classeStatut(c.statut)}` }, c.statut) : null,
+        c.distance != null ? el('span', { class: 'dist' }, distanceLisible(c.distance)) : null)))));
 }
 
 let ficheCourante = null;
@@ -1259,10 +1391,8 @@ function dessinerFiche(f) {
   itin.classList.toggle('cache', f.lat == null && !f.adresse);
   if (f.lat != null || f.adresse) itin.href = `https://maps.apple.com/?daddr=${f.lat != null ? `${f.lat},${f.lon}` : encodeURIComponent(f.adresse)}`;
 
-  // Le statut vient de ProGBat, qui fait foi : l'appli l'affiche, elle ne le change pas.
-  const st = statutDe(f.statut);
-  $('#fiche-statut').replaceChildren(el('span', { class: 'discret' }, 'Statut dans ProGBat'),
-    el('span', { class: `statut ${classeStatut(st)}` }, st));
+  $('#fiche-statut').replaceChildren(...STATUTS.map((s) =>
+    el('button', { class: s === statutDe(f.statut) ? 'active' : '', 'data-statut': s, onclick: () => changerStatut(s) }, STATUTS_COURTS[s])));
   $('#fiche-client').value = f.client || '';
   $('#fiche-tel').value = f.telephone || '';
   $('#fiche-adresse').value = f.adresse || '';
@@ -1330,6 +1460,7 @@ async function changerStatut(statut) {
   if (!ficheCourante?.nom) return;
   const nom = ficheCourante.nom;
   ficheCourante.statut = statut;
+  for (const b of $$('#fiche-statut button')) b.classList.toggle('active', b.dataset.statut === statut);
   const liste = listeChantiers();
   const c = liste.find((x) => x.nom === nom);
   if (c) c.statut = statut;
@@ -1434,22 +1565,10 @@ function dessinerTaches(taches) {
       setTimeout(majTachesAffichage, 700);
       await mettreEnFile([{ action: 'majTache', ligne: t.ligne || 0, texte: t.texte, statut: 'Fait' }]);
     };
-    const age = ageTache(t.date);
-    if (age !== null && age >= 7) li.classList.add('ancienne');
     li.append(caseBtn, el('div', {}, el('div', { class: 'texte' }, t.texte),
-      el('small', {},
-        t.chantier ? el('span', { class: 'puce-chantier' }, t.chantier) : null,
-        [age === null ? t.date : age === 0 ? 'aujourd\'hui' : age === 1 ? 'hier' : `il y a ${age} jours`, t.locale ? '⏳ en attente d\'envoi' : ''].filter(Boolean).join(' · '))));
+      el('small', {}, [t.chantier, t.date, t.locale ? '⏳ en attente d\'envoi' : ''].filter(Boolean).join(' · '))));
     return li;
   }));
-}
-
-// Âge d'une tâche en jours, d'après sa date « 05/11/2026 » (ou une date ISO). null si illisible.
-function ageTache(date) {
-  const m = String(date || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/) || String(date || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return null;
-  const d = m[0].includes('/') ? new Date(+m[3], m[2] - 1, +m[1], 12) : new Date(+m[1], m[2] - 1, +m[3], 12);
-  return Math.max(0, Math.round((dateDeIso(jourIso(new Date())) - d) / 864e5));
 }
 
 async function ajouterTache() {
@@ -1507,38 +1626,9 @@ function chargerPoint() {
       return;
     }
     $('#point-date').textContent = `${p.sujet} · ${quandLisible(p.date)}`;
-    $('#point-contenu').replaceChildren(...mettreEnFormePoint(p.texte));
+    $('#point-contenu').textContent = p.texte;
   });
   if (!navigator.onLine || !reglages.ok()) $('#btn-actualiser-point').textContent = 'Actualiser';
-}
-
-// Le point arrive en texte brut (mail du matin). On le découpe en rubriques lisibles :
-// une ligne qui commence par un emoji et ne finit pas par un point devient un titre, les « • » et « - » une liste.
-// Tout reste du texte (jamais de HTML venu du serveur).
-const DEBUT_EMOJI = /^\p{Extended_Pictographic}/u;
-function mettreEnFormePoint(texte) {
-  const blocs = [];
-  let liste = null;
-  let rubrique = null;
-  const ajouter = (noeud) => (rubrique || { append: (n) => blocs.push(n) }).append(noeud);
-  for (const brute of String(texte || '').split(/\r?\n/)) {
-    const ligne = brute.trim();
-    if (!ligne) { liste = null; continue; }
-    const puce = ligne.match(/^[•\-–*]\s+(.*)$/);
-    if (puce) {
-      if (!liste) { liste = el('ul', { class: 'point-liste' }); ajouter(liste); }
-      liste.append(el('li', {}, puce[1]));
-      continue;
-    }
-    liste = null;
-    if (DEBUT_EMOJI.test(ligne) && ligne.length < 60 && !/[.:]$/.test(ligne) && !/[.!?]\s/.test(ligne)) {
-      rubrique = el('section', { class: 'point-rubrique' }, el('h3', {}, ligne));
-      blocs.push(rubrique);
-      continue;
-    }
-    ajouter(el('p', {}, ligne));
-  }
-  return blocs.length ? blocs : [el('p', {}, String(texte || ''))];
 }
 
 // ===================== Demander à Claude =====================
@@ -1546,6 +1636,1252 @@ function ouvrirClaude() {
   const texte = $('#claude-texte').value.trim();
   // L'appli Claude s'ouvre si elle est installée (lien universel claude.ai).
   window.location.href = texte ? `https://claude.ai/new?q=${encodeURIComponent(texte)}` : 'https://claude.ai/new';
+}
+
+// ===================== Relevé de mesures sur photo =====================
+// Une ou plusieurs cotes mesurées sur place (Mesure, mètre, laser) donnent l'échelle ; tout le reste se mesure sur la
+// photo. Avec une mesure horizontale et une verticale, l'échelle est calculée dans les deux sens (photo prise d'en bas).
+const OUVRAGES = {
+  bardage: [['lame', 'Largeur de lame (mm)', 150], ['joint', 'Joint (mm)', 10], ['lisses', 'Entraxe des lisses (cm)', 60],
+    ['fixations', 'Fixations par croisement', 2], ['chute', 'Chute (%)', 10]],
+  couverture: [['liteaux', 'Entraxe des liteaux (cm)', 32], ['chevrons', 'Entraxe des chevrons (cm)', 60],
+    ['unites', 'Ardoises ou tuiles au m²', 0], ['surface', 'Surface (m², 0 = toiture calculée)', 0], ['chute', 'Chute (%)', 10]],
+  // Plaques ondulées (type Everite 5 ondes 93 × 150) : surface utile = (largeur − recouvrement latéral) × (longueur − recouvrement en bout).
+  plaques: [['largeur', 'Largeur plaque (cm)', 93], ['longueur', 'Longueur plaque (cm)', 150],
+    ['recLat', 'Recouvrement latéral (cm)', 5], ['recBout', 'Recouvrement en bout (cm)', 14],
+    ['surface', 'Surface (m², 0 = toiture calculée)', 0], ['chute', 'Chute (%)', 5]],
+  aucun: [],
+};
+const NOMS_OUVRAGES = { bardage: 'Bardage', couverture: 'Couverture', plaques: 'Plaques ondulées', aucun: 'Surfaces' };
+// mode « saisie » : formes et mesures tapées, l'appli calcule le reste ; mode « photo » : on mesure sur la photo.
+const R = { mode: 'saisie', photo: '', img: null, elements: [], outil: 'cote', enCours: null, glisse: null, loupe: null, historique: [],
+  ouvrage: 'bardage', params: {}, image: 0, feuilles: [], minuteur: null,
+  echelleFixe: null, lineaires: [], toiture: 0, incomplet: [], alertes: [],
+  gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } };
+
+const fmtM = (n) => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+const fmtNb = (n, d = 0) => n.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+// « 4,35 » → 4.35 m ; « 435 cm » → 4.35 ; « 4350 mm » → 4.35. Vide → 0. Illisible → null.
+function lireMesure(texte) {
+  const t = String(texte || '').trim().toLowerCase().replace(/\s/g, '').replace(',', '.');
+  if (!t) return 0;
+  const m = t.match(/^(\d+(?:\.\d+)?)(mm|cm|m)?$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return m[2] === 'mm' ? n / 1000 : m[2] === 'cm' ? n / 100 : n;
+}
+
+// Échelle (mètres par pixel de la photo), horizontale et verticale, d'après les cotes mesurées sur place.
+function echelleReleve() {
+  if (R.mode === 'saisie') return R.echelleFixe;
+  const refs = R.elements.filter((e) => e.type === 'cote' && e.valeur > 0)
+    .map((e) => ({ dx: e.b.x - e.a.x, dy: e.b.y - e.a.y, L: e.valeur }))
+    .filter((r) => Math.hypot(r.dx, r.dy) > 2);
+  if (!refs.length) return null;
+  const iso = refs.reduce((s, r) => s + r.L / Math.hypot(r.dx, r.dy), 0) / refs.length;
+  let sx = iso, sy = iso, deuxSens = false;
+  if (refs.length >= 2) {
+    // Moindres carrés sur sx² et sy² : L² = sx²·dx² + sy²·dy² pour chaque cote mesurée.
+    let a = 0, b = 0, c = 0, p = 0, q = 0;
+    for (const r of refs) {
+      const X = r.dx * r.dx, Y = r.dy * r.dy, L2 = r.L * r.L;
+      a += X * X; b += X * Y; c += Y * Y; p += L2 * X; q += L2 * Y;
+    }
+    const det = a * c - b * b;
+    if (a > 0 && c > 0 && det / (a * c) > 0.1) {
+      const u = (p * c - b * q) / det, v = (a * q - b * p) / det;
+      if (u > 0 && v > 0 && Math.sqrt(u / v) < 2.5 && Math.sqrt(v / u) < 2.5) { sx = Math.sqrt(u); sy = Math.sqrt(v); deuxSens = true; }
+    }
+  }
+  let ecart = 0;
+  for (const r of refs) ecart = Math.max(ecart, Math.abs(Math.hypot(r.dx * sx, r.dy * sy) - r.L) / r.L);
+  return { sx, sy, refs: refs.length, ecart, deuxSens };
+}
+
+const longueurM = (a, b, s) => Math.hypot((b.x - a.x) * s.sx, (b.y - a.y) * s.sy);
+const airePx = (pts) => Math.abs(pts.reduce((t, p, i) => { const q = pts[(i + 1) % pts.length]; return t + p.x * q.y - q.x * p.y; }, 0)) / 2;
+const aireM2 = (pts, s) => airePx(pts) * s.sx * s.sy;
+const centre = (pts) => ({ x: pts.reduce((t, p) => t + p.x, 0) / pts.length, y: pts.reduce((t, p) => t + p.y, 0) / pts.length });
+// Où écrire le nom d'une surface : le point de la surface le plus éloigné des bords, des ouvertures et des cotes
+// (le centre tombe souvent dans l'ouverture d'un pignon).
+function pointEtiquette(e) {
+  const xs = e.pts.map((p) => p.x), ys = e.pts.map((p) => p.y);
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const segments = [];
+  for (const x of R.elements) {
+    if (x.type === 'cote') segments.push([x.a, x.b]);
+    else x.pts.forEach((p, i) => segments.push([p, x.pts[(i + 1) % x.pts.length]]));
+  }
+  const autres = R.elements.filter((x) => x !== e && x.type !== 'cote' && airePx(x.pts) < airePx(e.pts));
+  let meilleur = centre(e.pts), score = -1;
+  for (let i = 1; i < 24; i++) {
+    for (let j = 1; j < 24; j++) {
+      const p = { x: x0 + (x1 - x0) * i / 24, y: y0 + (y1 - y0) * j / 24 };
+      if (!dansPolygone(p, e.pts) || autres.some((x) => dansPolygone(p, x.pts))) continue;
+      const d = Math.min(...segments.map(([a, b]) => distanceSegment(p, a, b)));
+      if (d > score) { score = d; meilleur = p; }
+    }
+  }
+  return meilleur;
+}
+
+const valeurCote = (e, s) => (e.inconnu ? null : e.valeur > 0 ? e.valeur : s ? longueurM(e.a, e.b, s) : null);
+const texteValeur = (e, s) => { const v = valeurCote(e, s); return v == null ? '?' : `${e.suppose ? '≈ ' : ''}${fmtM(v)}${e.valeur > 0 ? ' ✓' : ''}`; };
+const texteCote = (e, s) => (e.inconnu ? '?' : e.valeur > 0 ? `${fmtM(e.valeur)} ✓` : s ? `${R.mode === 'saisie' ? '' : '≈ '}${fmtM(longueurM(e.a, e.b, s))}` : '? m');
+const nomElement = (e) => e.nom || (e.type === 'cote' ? 'Cote' : e.type === 'ouverture' ? 'Ouverture' : 'Surface');
+
+function metreReleve(s = echelleReleve()) {
+  const cotes = R.elements.filter((e) => e.type === 'cote');
+  const surfaces = R.elements.filter((e) => e.type === 'surface');
+  const ouvertures = R.elements.filter((e) => e.type === 'ouverture');
+  const brut = s ? surfaces.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
+  const deduit = s ? ouvertures.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
+  return { cotes, surfaces, ouvertures, brut, deduit, net: Math.max(0, brut - deduit), toiture: R.mode === 'saisie' ? R.toiture : 0 };
+}
+
+function quantitesReleve(m) {
+  const p = { ...Object.fromEntries((OUVRAGES[R.ouvrage] || []).map(([k, , v]) => [k, v])), ...(R.params[R.ouvrage] || {}) };
+  const f = 1 + (Number(p.chute) || 0) / 100;
+  const lignes = [];
+  // Bardage : la surface nette du mur. Couverture et plaques : la surface tapée, sinon la toiture calculée.
+  const net = R.ouvrage === 'bardage' || R.ouvrage === 'aucun' ? m.net : Number(p.surface) > 0 ? Number(p.surface) : m.toiture || m.net;
+  if (net && R.ouvrage !== 'bardage' && R.ouvrage !== 'aucun') lignes.push(['Surface prise en compte', `${fmtNb(net, 2)} m²`]);
+  if (!net) return lignes;
+  if (R.ouvrage === 'bardage') {
+    const pas = ((Number(p.lame) || 150) + (Number(p.joint) || 0)) / 1000;
+    const lisses = (Number(p.lisses) || 60) / 100;
+    lignes.push([`Lames de ${p.lame} mm`, `${fmtNb(Math.ceil(net / pas * f))} ml`]);
+    lignes.push([`Lisses (entraxe ${p.lisses} cm)`, `${fmtNb(Math.ceil(net / lisses * f))} ml`]);
+    lignes.push(['Fixations inox', `≈ ${fmtNb(Math.ceil(net / pas / lisses * (Number(p.fixations) || 2) * f / 10) * 10)}`]);
+  } else if (R.ouvrage === 'couverture') {
+    lignes.push(['Écran sous-toiture (recouvrements compris)', `${fmtNb(net * 1.1 * f, 1)} m²`]);
+    lignes.push([`Liteaux (entraxe ${p.liteaux} cm)`, `${fmtNb(Math.ceil(net / ((Number(p.liteaux) || 32) / 100) * f))} ml`]);
+    lignes.push([`Contre-liteaux (chevrons à ${p.chevrons} cm)`, `${fmtNb(Math.ceil(net / ((Number(p.chevrons) || 60) / 100) * f))} ml`]);
+    if (Number(p.unites) > 0) lignes.push([`Ardoises ou tuiles (${p.unites} au m²)`, fmtNb(Math.ceil(net * Number(p.unites) * f))]);
+  } else if (R.ouvrage === 'plaques') {
+    const utile = Math.max(0.01, ((Number(p.largeur) || 93) - (Number(p.recLat) || 0)) / 100) * Math.max(0.01, ((Number(p.longueur) || 150) - (Number(p.recBout) || 0)) / 100);
+    lignes.push([`Plaques ${p.largeur} × ${p.longueur} (${fmtNb(utile, 2)} m² utiles)`, fmtNb(Math.ceil(net / utile * f))]);
+    lignes.push(['⚠ Amiante probable', 'repérage avant travaux']);
+  }
+  return lignes;
+}
+
+// ---------- Ouverture, photo, brouillon ----------
+async function ouvrirReleve(chantier = '') {
+  remplirSelectChantiers($('#releve-chantier'), chantier, '— Choisir le chantier —');
+  afficher('releve');
+  if (R.actif) { if (chantier) $('#releve-chantier').value = chantier; if (R.mode === 'photo') redessinerReleve(); majReleve(false); return; }
+  $('#releve-depart').classList.remove('cache');
+  $('#releve-travail').classList.add('cache');
+  $('#releve-reprendre').classList.toggle('cache', !lire('releve-brouillon'));
+}
+
+// Photo choisie : en mode saisie, elle est seulement jointe à la feuille ; sinon on mesure dessus.
+async function photoReleve(fichier, mode = 'photo') {
+  if (!fichier) return;
+  try {
+    const data = await traiterImage(fichier, false);
+    if (mode === 'saisie') {
+      R.photo = data;
+      R.img = await chargerDataUrl(data);
+      majPhotoJointe();
+      sauverBrouillonReleve();
+      return;
+    }
+    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value });
+  } catch (e) { toast(e.message, 'erreur'); }
+}
+
+async function demarrerReleve(b) {
+  R.mode = b.mode || 'photo';
+  R.actif = true;
+  R.photo = b.photo || '';
+  R.img = R.photo ? await chargerDataUrl(R.photo) : null;
+  R.elements = b.elements || [];
+  R.historique = [];
+  R.enCours = null;
+  R.echelleFixe = null;
+  R.incomplet = [];
+  R.alertes = [];
+  R.lineaires = [];
+  R.toiture = 0;
+  if (b.ouvrage) R.ouvrage = b.ouvrage;
+  if (b.params) R.params = b.params;
+  if (b.gabarit) R.gabarit = b.gabarit;
+  if (R.mode === 'photo') {
+    const c = $('#releve-canvas');
+    c.width = R.img.width;
+    c.height = R.img.height;
+  }
+  if (b.chantier) remplirSelectChantiers($('#releve-chantier'), b.chantier, '— Choisir le chantier —');
+  $('#releve-depart').classList.add('cache');
+  $('#releve-travail').classList.remove('cache');
+  $('#releve-zone-photo').classList.toggle('cache', R.mode !== 'photo');
+  $('#releve-zone-saisie').classList.toggle('cache', R.mode !== 'saisie');
+  $('#releve-titre').textContent = R.mode === 'saisie' ? 'Relevé' : 'Relevé sur photo';
+  for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x.dataset.ouvrage === R.ouvrage);
+  dessinerParamsReleve();
+  if (R.mode === 'saisie') {
+    choisirGabarit(R.gabarit.type, false);
+    majPhotoJointe();
+  } else {
+    choisirOutilReleve(R.elements.length ? R.outil : 'cote');
+    redessinerReleve();
+  }
+  majReleve(false);
+}
+
+function sauverBrouillonReleve() {
+  clearTimeout(R.minuteur);
+  R.minuteur = setTimeout(async () => {
+    if (!R.actif || !securite.cleDonnees) return;
+    try {
+      const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit,
+        chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now() };
+      ecrire('releve-brouillon', JSON.stringify(await chiffrer(JSON.stringify(b))));
+    } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
+  }, 800);
+}
+
+async function reprendreReleve() {
+  try {
+    const b = JSON.parse(await dechiffrer(JSON.parse(lire('releve-brouillon'))));
+    await demarrerReleve(b);
+  } catch (e) {
+    console.warn(e);
+    toast('Relevé en cours illisible.', 'erreur');
+    localStorage.removeItem('releve-brouillon');
+    $('#releve-reprendre').classList.add('cache');
+  }
+}
+
+function nouveauReleve() {
+  const enCours = R.elements.length || Object.values(R.gabarit.saisis).some(Boolean);
+  if (R.actif && enCours && !confirm('Commencer un nouveau relevé ? Celui en cours sera effacé.')) return;
+  R.actif = false;
+  R.photo = '';
+  R.img = null;
+  R.elements = [];
+  R.gabarit = { type: 'pignon', saisis: {}, ouvertures: [] };
+  try { localStorage.removeItem('releve-brouillon'); } catch { /* rien */ }
+  ouvrirReleve($('#releve-chantier').value);
+}
+
+// ---------- Saisie des mesures : la forme est proposée, l'appli calcule ce qui manque ----------
+const GABARITS = {
+  pignon: [['L', 'Largeur'], ['hG', 'Égout gauche (hauteur)'], ['hD', 'Égout droit (hauteur)'], ['hF', 'Faîtage (hauteur)'],
+    ['rG', 'Rampant gauche'], ['rD', 'Rampant droit'], ['pG', 'Pente gauche (° ou %)'], ['pD', 'Pente droite (° ou %)'],
+    ['xF', 'Faîtage depuis la gauche'], ['long', 'Longueur du bâtiment'], ['debord', 'Débord de toit (le long de la pente)']],
+  appentis: [['L', 'Largeur'], ['hB', 'Hauteur côté bas'], ['hH', 'Hauteur côté haut'], ['r', 'Rampant'], ['p', 'Pente (° ou %)'],
+    ['long', 'Longueur du bâtiment'], ['debord', 'Débord de toit (le long de la pente)']],
+  mur: [['L', 'Longueur'], ['H', 'Hauteur']],
+  pan: [['r', 'Rampant (égout → faîtage)'], ['long', 'Longueur du pan'], ['p', 'Pente (° ou %)'], ['portee', 'Portée horizontale']],
+};
+const NOMS_GABARITS = { pignon: 'Pignon', appentis: 'Appentis', mur: 'Mur', pan: 'Pan de toit' };
+const estPente = (cle) => /^p[GD]?$/.test(cle);
+const RAD_DEG = 180 / Math.PI;
+
+function lireChamp(cle, texte) {
+  if (!estPente(cle)) { const v = lireMesure(texte); return v > 0 ? v : null; }
+  const t = String(texte || '').replace(/\s/g, '').replace(',', '.');
+  if (!t) return null;
+  const n = Number(t.replace(/[%°]/g, ''));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return t.endsWith('%') ? Math.atan(n / 100) : n / RAD_DEG;
+}
+const afficherChamp = (cle, v) => (estPente(cle) ? `${fmtNb(v * RAD_DEG, 1)}° (${fmtNb(Math.tan(v) * 100, 0)} %)` : `${fmtM(v)} m`);
+
+// Un versant : égout e, faîtage f, avancée horizontale x, rampant r, pente p. Deux valeurs suffisent pour les autres.
+function resoudrePan(s) {
+  const k = (v) => v != null && Number.isFinite(v);
+  for (let n = 0; n < 8; n++) {
+    let change = false;
+    const poser = (c, v) => { if (!k(s[c]) && Number.isFinite(v) && v > 0) { s[c] = v; change = true; } };
+    if (k(s.e) && k(s.f)) poser('dh', s.f - s.e);
+    if (k(s.dh) && k(s.f)) poser('e', s.f - s.dh);
+    if (k(s.dh) && k(s.e)) poser('f', s.e + s.dh);
+    const { x, dh, r, p } = s;
+    if (k(x) && k(dh)) { poser('r', Math.hypot(x, dh)); poser('p', Math.atan2(dh, x)); }
+    if (k(x) && k(r) && r > x) { poser('dh', Math.sqrt(r * r - x * x)); poser('p', Math.acos(x / r)); }
+    if (k(x) && k(p)) { poser('dh', x * Math.tan(p)); poser('r', x / Math.cos(p)); }
+    if (k(dh) && k(r) && r > dh) { poser('x', Math.sqrt(r * r - dh * dh)); poser('p', Math.asin(dh / r)); }
+    if (k(dh) && k(p)) { poser('x', dh / Math.tan(p)); poser('r', dh / Math.sin(p)); }
+    if (k(r) && k(p)) { poser('x', r * Math.cos(p)); poser('dh', r * Math.sin(p)); }
+    if (!change) break;
+  }
+  return s;
+}
+
+function resoudreGabarit() {
+  const g = R.gabarit;
+  const saisi = {};
+  for (const [cle] of GABARITS[g.type]) { const v = lireChamp(cle, g.saisis[cle]); if (v != null) saisi[cle] = v; }
+  const v = { ...saisi }, origine = {}, alertes = [], supposes = {};
+  for (const cle of Object.keys(saisi)) origine[cle] = 'saisi';
+  const poser = (cle, val) => {
+    if (v[cle] == null && Number.isFinite(val) && val > 0) { v[cle] = val; origine[cle] = supposes[cle] ? 'supposé' : 'calculé'; }
+  };
+  const ecart = (nom, tape, calcule, pente = false) => {
+    if (tape == null || calcule == null) return;
+    const d = Math.abs(tape - calcule);
+    if (pente ? d * RAD_DEG > 1 : d > 0.03) {
+      alertes.push(pente
+        ? `${nom} : tu as tapé ${fmtNb(tape * RAD_DEG, 1)}°, les autres mesures donnent ${fmtNb(calcule * RAD_DEG, 1)}°`
+        : `${nom} : tu as tapé ${fmtM(tape)}, les autres mesures donnent ${fmtM(calcule)} (écart de ${fmtNb(d * 100, 0)} cm)`);
+    }
+  };
+
+  if (g.type === 'pignon') {
+    const G = { e: v.hG, f: v.hF, x: v.xF, r: v.rG, p: v.pG };
+    const D = { e: v.hD, f: v.hF, r: v.rD, p: v.pD };
+    const passe = () => {
+      for (let i = 0; i < 6; i++) {
+        resoudrePan(G); resoudrePan(D);
+        if (G.f != null && D.f == null) D.f = G.f;
+        if (D.f != null && G.f == null) G.f = D.f;
+        if (v.L != null && G.x != null && D.x == null) D.x = v.L - G.x;
+        if (v.L != null && D.x != null && G.x == null) G.x = v.L - D.x;
+      }
+    };
+    passe();
+    // Ce qui manque encore : hypothèses de bon sens, signalées comme « supposées ».
+    if (G.x == null && D.x == null && v.L != null) { G.x = D.x = v.L / 2; supposes.xF = 'faîtage au milieu'; passe(); }
+    if (D.e == null && G.e != null) { D.e = G.e; supposes.hD = 'comme l\'égout gauche'; passe(); }
+    if (G.e == null && D.e != null) { G.e = D.e; supposes.hG = 'comme l\'égout droit'; passe(); }
+    if (G.p == null && D.p != null && G.x == null) { G.p = D.p; supposes.pG = 'comme la pente droite'; passe(); }
+    if (D.p == null && G.p != null && D.x == null) { D.p = G.p; supposes.pD = 'comme la pente gauche'; passe(); }
+    if (v.L == null && G.x != null && D.x != null) poser('L', G.x + D.x);
+    for (const [cle, val] of [['hG', G.e], ['hD', D.e], ['hF', G.f ?? D.f], ['xF', G.x]]) poser(cle, val);
+    if (saisi.L != null && G.x != null && D.x != null) ecart('Largeur', saisi.L, G.x + D.x);
+    // Rampants et pentes : on refait le calcul avec la forme dessinée (faîtage à xF, murs à 0 et L).
+    if (v.L != null && v.xF != null && v.hG != null && v.hD != null && v.hF != null) {
+      const geo = { rG: Math.hypot(v.xF, v.hF - v.hG), rD: Math.hypot(v.L - v.xF, v.hF - v.hD),
+        pG: Math.atan2(v.hF - v.hG, v.xF), pD: Math.atan2(v.hF - v.hD, v.L - v.xF) };
+      ecart('Rampant gauche', saisi.rG, geo.rG); ecart('Rampant droit', saisi.rD, geo.rD);
+      ecart('Pente gauche', saisi.pG, geo.pG, true); ecart('Pente droite', saisi.pD, geo.pD, true);
+      for (const cle of ['rG', 'rD', 'pG', 'pD']) poser(cle, geo[cle]);
+    }
+  } else if (g.type === 'appentis') {
+    const S = resoudrePan({ e: v.hB, f: v.hH, x: v.L, r: v.r, p: v.p });
+    for (const [cle, val] of [['L', S.x], ['hB', S.e], ['hH', S.f], ['r', S.r], ['p', S.p]]) poser(cle, val);
+    if (v.L != null && v.hB != null && v.hH != null) {
+      ecart('Rampant', saisi.r, Math.hypot(v.L, v.hH - v.hB));
+      ecart('Pente', saisi.p, Math.atan2(v.hH - v.hB, v.L), true);
+    }
+  } else if (g.type === 'pan') {
+    const S = resoudrePan({ x: v.portee, r: v.r, p: v.p });
+    for (const [cle, val] of [['portee', S.x], ['r', S.r], ['p', S.p]]) poser(cle, val);
+  }
+  return { v, origine, alertes, supposes };
+}
+
+// Formes et cotes en mètres → éléments du relevé (1 m = 100 points, y vers le bas comme sur une photo).
+function construireSaisie(sol) {
+  const g = R.gabarit, v = sol.v, o = sol.origine;
+  const els = [], manque = [], lin = [];
+  const req = (cle, nom) => { if (v[cle] == null) manque.push(nom); };
+  let haut = 0;
+  const pts = [];
+  const cotes = [];
+  // Valeurs pour dessiner même si tout n'est pas connu (le dessin reste « proposé »).
+  const d = { ...v };
+  const cote = (nom, a, b, cle) => cotes.push({ nom, a, b, cle });
+
+  if (g.type === 'pignon') {
+    ['L', 'hG', 'hD', 'hF'].forEach((c, i) => req(c, ['la largeur', 'l\'égout gauche', 'l\'égout droit', 'la hauteur au faîtage (ou un rampant, ou une pente)'][i]));
+    d.L ??= 10; d.hG ??= d.hD ?? 3; d.hD ??= d.hG; d.xF ??= d.L / 2;
+    d.hF ??= Math.max(d.hG, d.hD) + d.xF * Math.tan(25 / RAD_DEG);
+    pts.push([0, 0], [0, d.hG], [d.xF, d.hF], [d.L, d.hD], [d.L, 0]);
+    haut = d.hF;
+    const off = 0.7;
+    cote('Largeur', [0, -off], [d.L, -off], 'L');
+    cote('Égout G', [-off, 0], [-off, d.hG], 'hG');
+    cote('Égout D', [d.L + off, 0], [d.L + off, d.hD], 'hD');
+    cote('Faîtage', [d.xF, 0], [d.xF, d.hF], 'hF');
+    const decale = (a, b) => { const n = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; const nx = -(b[1] - a[1]) / n * off, ny = (b[0] - a[0]) / n * off; return [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny]]; };
+    cote('Rampant G', ...decale([0, d.hG], [d.xF, d.hF]), 'rG');
+    cote('Rampant D', ...decale([d.xF, d.hF], [d.L, d.hD]), 'rD');
+    if (!manque.length) {
+      const deb = v.debord || 0;
+      const rives = v.rG + v.rD + 2 * deb;
+      lin.push(['Pente gauche', afficherChamp('pG', v.pG)], ['Pente droite', afficherChamp('pD', v.pD)]);
+      lin.push(['Rives (un pignon)', `${fmtM(rives)} ml`]);
+      if (v.long) {
+        lin.push(['Faîtage (longueur)', `${fmtM(v.long)} ml`], ['Gouttières (2 côtés)', `${fmtM(2 * v.long)} ml`]);
+        R.toiture = rives * v.long;
+      }
+    }
+  } else if (g.type === 'appentis') {
+    req('L', 'la largeur'); req('hB', 'la hauteur côté bas'); req('hH', 'la hauteur côté haut (ou le rampant, ou la pente)');
+    d.L ??= 6; d.hB ??= 2.5; d.hH ??= d.hB + d.L * Math.tan(15 / RAD_DEG);
+    pts.push([0, 0], [0, d.hB], [d.L, d.hH], [d.L, 0]);
+    haut = Math.max(d.hB, d.hH);
+    const off = 0.7;
+    cote('Largeur', [0, -off], [d.L, -off], 'L');
+    cote('Côté bas', [-off, 0], [-off, d.hB], 'hB');
+    cote('Côté haut', [d.L + off, 0], [d.L + off, d.hH], 'hH');
+    const n = Math.hypot(d.L, d.hH - d.hB) || 1;
+    const nx = -(d.hH - d.hB) / n * off, ny = d.L / n * off;
+    cote('Rampant', [nx, d.hB + ny], [d.L + nx, d.hH + ny], 'r');
+    if (!manque.length) {
+      const deb = v.debord || 0;
+      lin.push(['Pente', afficherChamp('p', v.p)], ['Rive', `${fmtM(v.r + deb)} ml`]);
+      if (v.long) { lin.push(['Gouttière', `${fmtM(v.long)} ml`]); R.toiture = (v.r + deb) * v.long; }
+    }
+  } else if (g.type === 'mur') {
+    req('L', 'la longueur'); req('H', 'la hauteur');
+    d.L ??= 10; d.H ??= 3;
+    pts.push([0, 0], [0, d.H], [d.L, d.H], [d.L, 0]);
+    haut = d.H;
+    cote('Longueur', [0, -0.7], [d.L, -0.7], 'L');
+    cote('Hauteur', [-0.7, 0], [-0.7, d.H], 'H');
+  } else {
+    req('r', 'le rampant (ou la portée et la pente)'); req('long', 'la longueur du pan');
+    d.r ??= 6; d.long ??= 10;
+    pts.push([0, 0], [0, d.r], [d.long, d.r], [d.long, 0]);
+    haut = d.r;
+    cote('Longueur', [0, -0.7], [d.long, -0.7], 'long');
+    cote('Rampant', [-0.7, 0], [-0.7, d.r], 'r');
+    if (!manque.length && v.p) lin.push(['Pente', afficherChamp('p', v.p)]);
+  }
+
+  // Ouvertures : largeur × hauteur, ou surface seule ; à gauche, à la distance tapée, sinon centrée.
+  const largeurTotale = g.type === 'pan' ? d.long : d.L;
+  const ouvertures = [];
+  g.ouvertures.forEach((ov, i) => {
+    let l = lireMesure(ov.l) || 0, h = lireMesure(ov.h) || 0;
+    const s = lireMesure(ov.s) || 0;
+    const nom = ov.nom || `Ouverture ${i + 1}`;
+    if (s && l && !h) h = s / l;
+    if (s && h && !l) l = s / h;
+    const libre = s && !l && !h;
+    if (libre) { l = h = Math.sqrt(s); }
+    if (!l || !h) { manque.push(`les dimensions de « ${nom} »`); return; }
+    const x = ov.x !== '' && ov.x != null && lireMesure(ov.x) != null ? lireMesure(ov.x) : (largeurTotale - l) / 2;
+    ouvertures.push({ nom, x, l, h, libre, lTape: lireMesure(ov.l) || 0, hTape: lireMesure(ov.h) || 0 });
+  });
+
+  // Passage en points (y inversé).
+  const H0 = haut + 1.5;
+  const P = ([x, y]) => ({ x: Math.round(x * 100), y: Math.round((H0 - y) * 100) });
+  els.push({ type: 'surface', nom: NOMS_GABARITS[g.type], pts: pts.map(P) });
+  for (const c of cotes) {
+    els.push({ type: 'cote', nom: c.nom, a: P(c.a), b: P(c.b), valeur: o[c.cle] === 'saisi' ? v[c.cle] : 0,
+      inconnu: v[c.cle] == null, suppose: o[c.cle] === 'supposé' });
+  }
+  for (const ov of ouvertures) {
+    els.push({ type: 'ouverture', nom: ov.nom, pts: [[ov.x, 0], [ov.x, ov.h], [ov.x + ov.l, ov.h], [ov.x + ov.l, 0]].map(P) });
+    if (!ov.libre) {
+      els.push({ type: 'cote', nom: `${ov.nom} (largeur)`, court: true, a: P([ov.x, 0.35]), b: P([ov.x + ov.l, 0.35]), valeur: ov.lTape });
+      els.push({ type: 'cote', nom: `${ov.nom} (hauteur)`, court: true, a: P([ov.x + 0.35, 0]), b: P([ov.x + 0.35, ov.h]), valeur: ov.hTape });
+    }
+  }
+  R.elements = els;
+  R.echelleFixe = { sx: 0.01, sy: 0.01, refs: Object.keys(o).filter((c) => o[c] === 'saisi').length, ecart: 0, deuxSens: true, fixe: true };
+  R.incomplet = manque;
+  R.alertes = sol.alertes;
+  R.lineaires = lin;
+}
+
+function choisirGabarit(type, maj = true) {
+  R.gabarit.type = type;
+  for (const b of $$('#gabarit-types [data-gabarit]')) b.classList.toggle('active', b.dataset.gabarit === type);
+  // Ouvrage proposé : toiture → plaques/couverture ; murs → bardage.
+  if (maj && type === 'pan' && R.ouvrage === 'bardage') R.ouvrage = 'plaques';
+  for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x.dataset.ouvrage === R.ouvrage);
+  dessinerParamsReleve();
+  dessinerChampsSaisie();
+  dessinerOuvertures();
+  if (maj) majReleve();
+}
+
+function dessinerChampsSaisie() {
+  const g = R.gabarit;
+  $('#gabarit-champs').replaceChildren(...GABARITS[g.type].map(([cle, libelle]) => {
+    const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', id: `saisie-${cle}`, value: g.saisis[cle] || '' });
+    input.oninput = () => { g.saisis[cle] = input.value; majReleve(); };
+    return el('div', { class: 'champ champ-saisie', 'data-cle': cle },
+      el('label', { for: `saisie-${cle}` }, libelle), input, el('small', { class: 'calcul' }, ''));
+  }));
+}
+
+function dessinerOuvertures() {
+  const g = R.gabarit;
+  $('#gabarit-ouvertures').replaceChildren(...g.ouvertures.map((ov, i) => {
+    const champ = (cle, libelle, ph) => {
+      const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: ov[cle] || '' });
+      input.oninput = () => { ov[cle] = input.value; majReleve(); };
+      return el('div', { class: 'champ' }, el('label', {}, libelle), input);
+    };
+    const nom = el('input', { type: 'text', class: 'nom-ouverture', value: ov.nom || '', placeholder: `Ouverture ${i + 1}` });
+    nom.oninput = () => { ov.nom = nom.value.trim(); majReleve(); };
+    return el('div', { class: 'ouverture-saisie' },
+      el('div', { class: 'ouverture-entete' }, nom,
+        el('button', { class: 'lien', 'aria-label': 'Retirer', onclick: () => { g.ouvertures.splice(i, 1); dessinerOuvertures(); majReleve(); } }, '🗑️')),
+      el('div', { class: 'deux-champs' }, champ('l', 'Largeur', 'ex. 5,70'), champ('h', 'Hauteur', 'ex. 3,15'),
+        champ('x', 'Depuis la gauche', 'centrée'), champ('s', 'ou surface (m²)', 'forme libre')));
+  }));
+}
+
+function majPhotoJointe() {
+  const zone = $('#gabarit-photo-vignette');
+  zone.replaceChildren(...(R.photo ? [el('img', { src: R.photo, alt: 'Photo jointe' }),
+    el('button', { class: 'suppr', 'aria-label': 'Retirer la photo', onclick: () => { R.photo = ''; R.img = null; majPhotoJointe(); sauverBrouillonReleve(); } }, '×')] : []));
+  $('#gabarit-photo').textContent = R.photo ? '📷 Changer la photo' : '📷 Joindre une photo (facultatif)';
+}
+
+function majSaisie(sauver = true) {
+  R.toiture = 0;
+  const sol = resoudreGabarit();
+  construireSaisie(sol);
+  const s = R.echelleFixe;
+  const m = metreReleve(s);
+
+  // Ce que l'appli a calculé s'affiche en gris dans les cases vides.
+  for (const div of $$('#gabarit-champs .champ-saisie')) {
+    const cle = div.dataset.cle;
+    const o = sol.origine[cle];
+    const val = sol.v[cle];
+    const input = div.querySelector('input');
+    const petit = div.querySelector('.calcul');
+    div.classList.toggle('calcule', o === 'calculé');
+    div.classList.toggle('suppose', o === 'supposé');
+    input.placeholder = o && o !== 'saisi' ? afficherChamp(cle, val).replace(' m', '') : cle === 'debord' ? '0' : '';
+    petit.textContent = o === 'calculé' ? `= ${afficherChamp(cle, val)} calculé` : o === 'supposé' ? `≈ ${afficherChamp(cle, val)} supposé (${sol.supposes[cle]})` : '';
+  }
+
+  const c = $('#gabarit-apercu');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, c.width, c.height);
+  dessinerPlan(ctx, { x: 0, y: 0, w: c.width, h: c.height }, s, 1.35);
+
+  const aide = $('#gabarit-aide');
+  if (R.incomplet.length) {
+    aide.className = 'releve-aide';
+    aide.textContent = `Tape ce que tu as mesuré. Il manque encore : ${R.incomplet.join(', ')}.`;
+  } else if (R.alertes.length) {
+    aide.className = 'releve-aide';
+    aide.replaceChildren(el('strong', {}, '⚠ Des mesures ne collent pas entre elles :'), ...R.alertes.map((a) => el('div', {}, `• ${a}`)));
+  } else {
+    aide.className = 'releve-aide ok';
+    aide.textContent = '✓ Tout est calculé. Les cases grises sont les valeurs trouvées par l\'appli.';
+  }
+
+  const lignes = [];
+  if (!R.incomplet.length) {
+    for (const e of [...m.surfaces, ...m.ouvertures]) {
+      lignes.push(el('li', {}, el('span', {}, nomElement(e), e.type === 'ouverture' ? el('small', {}, ' à déduire') : null),
+        el('b', {}, `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`)));
+    }
+    if (m.ouvertures.length) lignes.push(el('li', { class: 'total' }, el('span', {}, 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+    if (m.toiture) lignes.push(el('li', {}, el('span', {}, 'Surface de toiture'), el('b', {}, `${fmtNb(m.toiture, 2)} m²`)));
+    for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a), el('b', {}, b)));
+  }
+  $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Les surfaces s\'afficheront dès que les mesures seront complètes.')]));
+  if (R.incomplet.length) $('#releve-quantites').replaceChildren(el('li', { class: 'vide' }, 'Complète les mesures pour avoir les quantités.'));
+  else dessinerQuantites(m, 'Pas de quantité pour l\'instant.');
+  $('#releve-envoyer').disabled = !!R.incomplet.length;
+  if (sauver) sauverBrouillonReleve();
+}
+
+// ---------- Dessin ----------
+const epReleve = (c) => Math.max(3, Math.round(Math.max(c.width, c.height) / 230));
+
+function dessinerReleveSur(ctx, ep, s) {
+  for (const e of R.elements) {
+    if (e.type === 'cote') continue;
+    tracerSurface(ctx, e.pts, e.type, ep, true);
+    const pe = pointEtiquette(e);
+    if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireM2(e.pts, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
+  }
+  for (const e of R.elements) {
+    if (e.type !== 'cote') continue;
+    dessinerForme(ctx, { type: 'cote', couleur: e.valeur > 0 ? '#ffcc00' : '#ffffff', a: e.a, b: e.b, texte: texteCote(e, s) }, ep);
+    pointsReleve(ctx, [e.a, e.b], ep);
+  }
+  const ec = R.enCours;
+  if (ec?.type === 'cote') dessinerForme(ctx, { type: 'cote', couleur: '#ffcc00', a: ec.a, b: ec.b, texte: s ? `≈ ${fmtM(longueurM(ec.a, ec.b, s))}` : '' }, ep);
+  if (ec?.pts) tracerSurface(ctx, ec.pts, ec.type, ep, false);
+}
+
+function tracerSurface(ctx, pts, type, ep, ferme) {
+  if (!pts.length) return;
+  ctx.save();
+  ctx.beginPath();
+  pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  if (ferme) ctx.closePath();
+  const ouverture = type === 'ouverture';
+  if (ferme) { ctx.fillStyle = ouverture ? 'rgba(255,69,58,.22)' : 'rgba(47,111,235,.25)'; ctx.fill(); }
+  ctx.strokeStyle = ouverture ? '#ff453a' : '#4d8dff';
+  ctx.lineWidth = ep;
+  ctx.lineJoin = 'round';
+  if (ouverture) ctx.setLineDash([ep * 3, ep * 2]);
+  ctx.shadowColor = 'rgba(0,0,0,.5)';
+  ctx.shadowBlur = ep;
+  ctx.stroke();
+  ctx.restore();
+  pointsReleve(ctx, pts, ep, !ferme);
+}
+
+function pointsReleve(ctx, pts, ep, premierEnEvidence = false) {
+  ctx.save();
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, ep * (premierEnEvidence && i === 0 && pts.length >= 3 ? 2.6 : 1.5), 0, 2 * Math.PI);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.lineWidth = ep * 0.6;
+    ctx.strokeStyle = '#111';
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function redessinerReleve() {
+  const c = $('#releve-canvas');
+  if (!R.img || R.mode !== 'photo') return;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(R.img, 0, 0);
+  dessinerReleveSur(ctx, epReleve(c), echelleReleve());
+  if (R.loupe) montrerLoupe(R.loupe);
+}
+
+function planifierDessinReleve() {
+  if (!R.image) R.image = requestAnimationFrame(() => { R.image = 0; redessinerReleve(); });
+}
+
+// Loupe : le doigt cache le point visé, on le montre agrandi 3 fois dans un coin.
+function montrerLoupe(p) {
+  const c = $('#releve-canvas'), l = $('#releve-loupe');
+  // La loupe fait 120 points à l'écran : elle montre un carré de 40 points de la photo affichée (zoom × 3).
+  const k = c.getBoundingClientRect().width / c.width;
+  const src = 40 / Math.max(k, 0.0001);
+  const ctx = l.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, l.width, l.height);
+  ctx.drawImage(c, p.x - src / 2, p.y - src / 2, src, src, 0, 0, l.width, l.height);
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(l.width / 2, l.height / 2 - 18); ctx.lineTo(l.width / 2, l.height / 2 + 18);
+  ctx.moveTo(l.width / 2 - 18, l.height / 2); ctx.lineTo(l.width / 2 + 18, l.height / 2);
+  ctx.stroke();
+  l.classList.remove('cache');
+  l.classList.toggle('a-droite', p.x < c.width / 2);
+}
+
+function cacherLoupe() { R.loupe = null; $('#releve-loupe').classList.add('cache'); }
+
+// ---------- Doigt sur la photo ----------
+function pointReleve(ev) {
+  const c = $('#releve-canvas'), r = c.getBoundingClientRect();
+  return { x: Math.round((ev.clientX - r.left) * c.width / r.width), y: Math.round((ev.clientY - r.top) * c.height / r.height) };
+}
+const toleranceReleve = (ecranPx = 24) => { const c = $('#releve-canvas'); return ecranPx * c.width / c.getBoundingClientRect().width; };
+
+function sauverHistorique() {
+  R.historique.push(JSON.stringify(R.elements));
+  if (R.historique.length > 60) R.historique.shift();
+}
+
+function sommetProche(p) {
+  const tol = toleranceReleve();
+  let meilleur = null;
+  for (const e of R.elements) {
+    const sommets = e.type === 'cote' ? [['a', e.a], ['b', e.b]] : e.pts.map((q, i) => [i, q]);
+    for (const [cle, q] of sommets) {
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (d < tol && (!meilleur || d < meilleur.d)) meilleur = { e, cle, d };
+    }
+  }
+  return meilleur;
+}
+
+function distanceSegment(p, a, b) {
+  const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+  const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2)) : 0;
+  return Math.hypot(p.x - (a.x + t * (b.x - a.x)), p.y - (a.y + t * (b.y - a.y)));
+}
+
+function dansPolygone(p, pts) {
+  let dedans = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    if ((pts[i].y > p.y) !== (pts[j].y > p.y) && p.x < (pts[j].x - pts[i].x) * (p.y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x) dedans = !dedans;
+  }
+  return dedans;
+}
+
+function elementSous(p) {
+  const tol = toleranceReleve(20);
+  const cote = R.elements.filter((e) => e.type === 'cote').map((e) => ({ e, d: distanceSegment(p, e.a, e.b) }))
+    .filter((x) => x.d < tol).sort((x, y) => x.d - y.d)[0];
+  if (cote) return cote.e;
+  return R.elements.filter((e) => e.type !== 'cote' && dansPolygone(p, e.pts)).sort((x, y) => airePx(x.pts) - airePx(y.pts))[0] || null;
+}
+
+function releveDebut(ev) {
+  ev.preventDefault();
+  const p = pointReleve(ev);
+  const capturer = () => { try { ev.target.setPointerCapture(ev.pointerId); } catch { /* sans importance */ } };
+  if (R.outil === 'modifier') {
+    const s = sommetProche(p);
+    if (s) { sauverHistorique(); R.glisse = s; R.loupe = p; capturer(); planifierDessinReleve(); return; }
+    const e = elementSous(p);
+    if (e) ouvrirSelection(e); else fermerSelection();
+    return;
+  }
+  if (R.outil === 'cote') {
+    R.enCours = { type: 'cote', a: p, b: p };
+  } else {
+    if (!R.enCours?.pts || R.enCours.type !== R.outil) R.enCours = { type: R.outil, pts: [] };
+    const pts = R.enCours.pts;
+    if (pts.length >= 3 && Math.hypot(pts[0].x - p.x, pts[0].y - p.y) < toleranceReleve()) { fermerSurface(); return; }
+    pts.push(p);
+    R.enCours.mobile = true;
+  }
+  R.loupe = p;
+  capturer();
+  planifierDessinReleve();
+}
+
+function releveMouvement(ev) {
+  const actif = R.glisse || R.enCours?.type === 'cote' || R.enCours?.mobile;
+  if (!actif) return;
+  ev.preventDefault();
+  const p = pointReleve(ev);
+  if (R.glisse) {
+    const { e, cle } = R.glisse;
+    if (e.type === 'cote') e[cle] = p; else e.pts[cle] = p;
+  } else if (R.enCours.type === 'cote') R.enCours.b = p;
+  else R.enCours.pts[R.enCours.pts.length - 1] = p;
+  R.loupe = p;
+  planifierDessinReleve();
+}
+
+function releveFin() {
+  cacherLoupe();
+  if (R.glisse) { R.glisse = null; redessinerReleve(); majReleve(); return; }
+  const ec = R.enCours;
+  if (!ec) return;
+  if (ec.type === 'cote') {
+    R.enCours = null;
+    if (Math.hypot(ec.b.x - ec.a.x, ec.b.y - ec.a.y) < toleranceReleve(18)) { redessinerReleve(); return; }
+    redessinerReleve();
+    const premiere = !echelleReleve();
+    const t = prompt(premiere
+      ? 'Tape la vraie mesure de cette cote, prise sur place (ex. 4,35). Elle sert d\'échelle pour tout le reste.'
+      : 'Mesure prise sur place ? Tape-la (ex. 2,60). Laisse vide pour la calculer sur la photo.', '');
+    if (t === null) { redessinerReleve(); return; }
+    const v = lireMesure(t);
+    if (v === null) { toast('Mesure illisible (ex. 4,35 ou 435 cm).', 'erreur'); redessinerReleve(); return; }
+    sauverHistorique();
+    R.elements.push({ type: 'cote', a: ec.a, b: ec.b, valeur: v || 0, nom: '' });
+    if (premiere && !v) toast('Il faut au moins une cote mesurée sur place pour avoir l\'échelle.', 'erreur');
+  } else {
+    ec.mobile = false;
+  }
+  redessinerReleve();
+  majReleve();
+}
+
+function fermerSurface() {
+  const ec = R.enCours;
+  if (!ec?.pts || ec.pts.length < 3) return;
+  sauverHistorique();
+  const n = R.elements.filter((e) => e.type === ec.type).length + 1;
+  R.elements.push({ type: ec.type, pts: ec.pts, nom: `${ec.type === 'ouverture' ? 'Ouverture' : 'Surface'} ${n}` });
+  R.enCours = null;
+  redessinerReleve();
+  majReleve();
+}
+
+function defaireReleve() {
+  if (R.enCours?.pts?.length) { R.enCours.pts.pop(); if (!R.enCours.pts.length) R.enCours = null; }
+  else if (R.historique.length) R.elements = JSON.parse(R.historique.pop());
+  fermerSelection();
+  redessinerReleve();
+  majReleve();
+}
+
+function choisirOutilReleve(outil) {
+  if (R.enCours && R.enCours.type !== outil) R.enCours = null;
+  R.outil = outil;
+  for (const b of $$('#releve-outils [data-outil]')) b.classList.toggle('active', b.dataset.outil === outil);
+  fermerSelection();
+  redessinerReleve();
+  majReleve(false);
+}
+
+// ---------- Modifier une cote ou une surface ----------
+let selectionReleve = null;
+function ouvrirSelection(e) {
+  selectionReleve = e;
+  const s = echelleReleve();
+  const zone = $('#releve-selection');
+  const titre = e.type === 'cote' ? `${nomElement(e)} · ${texteCote(e, s)}` : `${nomElement(e)}${s ? ` · ${fmtNb(aireM2(e.pts, s), 2)} m²` : ''}`;
+  const boutons = [];
+  if (e.type === 'cote') {
+    boutons.push(el('button', { class: 'btn-petit', onclick: () => {
+      const t = prompt('Mesure prise sur place (vide = calculée sur la photo) :', e.valeur ? String(e.valeur).replace('.', ',') : '');
+      if (t === null) return;
+      const v = lireMesure(t);
+      if (v === null) { toast('Mesure illisible.', 'erreur'); return; }
+      sauverHistorique(); e.valeur = v || 0; apresModif();
+    } }, '📏 Mesure'));
+  } else {
+    boutons.push(el('button', { class: 'btn-petit', onclick: () => {
+      sauverHistorique(); e.type = e.type === 'ouverture' ? 'surface' : 'ouverture';
+      e.nom = e.nom.replace(/^(Surface|Ouverture)/, e.type === 'ouverture' ? 'Ouverture' : 'Surface'); apresModif();
+    } }, e.type === 'ouverture' ? '⇄ Compter' : '⇄ Déduire'));
+  }
+  boutons.push(el('button', { class: 'btn-petit', onclick: () => {
+    const t = prompt('Nom (ex. Faîtage, Pignon nord, Porte) :', e.nom || '');
+    if (t === null) return;
+    sauverHistorique(); e.nom = t.trim().slice(0, 30); apresModif();
+  } }, '🏷️ Nommer'));
+  boutons.push(el('button', { class: 'btn-petit danger', onclick: () => {
+    sauverHistorique(); R.elements = R.elements.filter((x) => x !== e); apresModif();
+  } }, '🗑️'));
+  zone.replaceChildren(el('strong', {}, titre), el('div', { class: 'selection-boutons' }, ...boutons),
+    el('button', { class: 'fermer', 'aria-label': 'Fermer', onclick: fermerSelection }, '×'));
+  zone.classList.remove('cache');
+}
+function apresModif() { const e = selectionReleve; fermerSelection(); redessinerReleve(); majReleve(); if (e && R.elements.includes(e)) ouvrirSelection(e); }
+function fermerSelection() { selectionReleve = null; $('#releve-selection')?.classList.add('cache'); }
+
+// ---------- Liste des mesures et quantitatif ----------
+function majReleve(sauver = true) {
+  if (R.mode === 'saisie') { majSaisie(sauver); return; }
+  const s = echelleReleve();
+  const m = metreReleve(s);
+  const aide = $('#releve-aide');
+  const enSurface = R.outil === 'surface' || R.outil === 'ouverture';
+  if (!s) aide.textContent = '① Tire une cote sur quelque chose que tu as mesuré sur place (avec Mesure ou au mètre), puis tape sa mesure : elle donne l\'échelle.';
+  else if (enSurface) aide.textContent = R.outil === 'surface' ? 'Touche les coins de la surface un par un (la loupe aide), puis « Fermer la surface ».' : 'Touche les coins de l\'ouverture à déduire, puis « Fermer ».';
+  else if (R.outil === 'modifier') aide.textContent = 'Fais glisser un point pour l\'ajuster, ou touche une cote ou une surface pour la modifier.';
+  else if (s.refs === 1) aide.textContent = '✓ Échelle prise sur 1 mesure. Ajoute une 2e mesure dans l\'autre sens (verticale si la 1re est horizontale) : plus précis.';
+  else aide.textContent = `✓ Échelle sur ${s.refs} mesures${s.deuxSens ? ' (dans les deux sens)' : ''}${s.refs >= 3 ? ` · écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}. Tire les autres cotes.`;
+  aide.classList.toggle('ok', !!s && !enSurface && R.outil !== 'modifier');
+
+  const n = R.enCours?.pts?.length || 0;
+  const bf = $('#releve-fermer-surface');
+  bf.classList.toggle('cache', !(enSurface && n >= 3));
+  bf.textContent = R.outil === 'ouverture' ? '✓ Fermer l\'ouverture' : '✓ Fermer la surface';
+
+  const lignes = [];
+  m.cotes.forEach((e, i) => {
+    const li = el('li', { class: 'cliquable' }, el('span', {}, `${e.nom || `Cote ${i + 1}`}`, e.valeur > 0 ? el('small', {}, ' mesurée') : null),
+      el('b', { class: e.valeur > 0 ? 'mesuree' : '' }, s || e.valeur ? `${fmtM(valeurCote(e, s))} m` : '?'));
+    li.onclick = () => { choisirOutilReleve('modifier'); ouvrirSelection(e); };
+    lignes.push(li);
+  });
+  for (const e of [...m.surfaces, ...m.ouvertures]) {
+    const li = el('li', { class: 'cliquable' }, el('span', {}, nomElement(e), e.type === 'ouverture' ? el('small', {}, ' à déduire') : null),
+      el('b', {}, s ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²` : '?'));
+    li.onclick = () => { choisirOutilReleve('modifier'); ouvrirSelection(e); };
+    lignes.push(li);
+  }
+  if (s && m.surfaces.length) lignes.push(el('li', { class: 'total' }, el('span', {}, 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+  $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Pas encore de mesure.')]));
+
+  dessinerQuantites(m, 'Trace une surface (et ses ouvertures) pour avoir les quantités.');
+  $('#releve-envoyer').disabled = !s || !R.elements.length;
+  if (sauver) sauverBrouillonReleve();
+}
+
+function dessinerQuantites(m, vide) {
+  const q = quantitesReleve(m);
+  $('#releve-quantites').replaceChildren(...(q.length
+    ? q.map(([l, v]) => el('li', {}, el('span', {}, l), el('b', {}, v)))
+    : [el('li', { class: 'vide' }, R.ouvrage === 'aucun' ? 'Les surfaces sont dans la liste au-dessus.' : vide)]));
+}
+
+function dessinerParamsReleve() {
+  const vals = R.params[R.ouvrage] || {};
+  $('#releve-params').replaceChildren(...(OUVRAGES[R.ouvrage] || []).map(([cle, libelle, defaut]) => {
+    const input = el('input', { type: 'text', inputmode: 'decimal', value: String(vals[cle] ?? defaut).replace('.', ',') });
+    input.oninput = () => {
+      const v = Number(input.value.replace(',', '.'));
+      if (!Number.isFinite(v)) return;
+      R.params[R.ouvrage] = { ...(R.params[R.ouvrage] || {}), [cle]: v };
+      majReleve();
+    };
+    return el('div', { class: 'champ' }, el('label', {}, libelle), input);
+  }));
+}
+
+function texteMetre() {
+  const s = echelleReleve();
+  const m = metreReleve(s);
+  const chantier = $('#releve-chantier').value;
+  const l = [`Relevé${chantier ? ` – ${chantier}` : ''} – ${new Date().toLocaleDateString('fr-FR')}`, ''];
+  m.cotes.forEach((e, i) => l.push(`${e.nom || `Cote ${i + 1}`} : ${texteValeur(e, s).replace(' ✓', '')} m${e.valeur > 0 ? ' (mesurée)' : e.suppose ? ' (supposée)' : R.mode === 'saisie' ? ' (calculée)' : ' (sur photo)'}`));
+  for (const e of [...m.surfaces, ...m.ouvertures]) l.push(`${nomElement(e)} : ${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
+  if (m.surfaces.length) l.push(`Surface nette : ${fmtNb(m.net, 2)} m²`);
+  if (R.mode === 'saisie') {
+    if (m.toiture) l.push(`Surface de toiture : ${fmtNb(m.toiture, 2)} m²`);
+    for (const [a, b] of R.lineaires) l.push(`${a} : ${b}`);
+    for (const a of R.alertes) l.push(`⚠ ${a}`);
+  }
+  const q = quantitesReleve(m);
+  if (q.length) { l.push('', `${NOMS_OUVRAGES[R.ouvrage]} :`); for (const [a, b] of q) l.push(`- ${a} : ${b}`); }
+  return l.join('\n');
+}
+
+// ---------- Feuille de relevé (2 pages : esquisse cotée + photo cotée) ----------
+function bandeauFeuille(ctx, W, titre) {
+  ctx.fillStyle = '#23376d';
+  ctx.fillRect(0, 0, W, 150);
+  ctx.fillStyle = '#d5ac83';
+  ctx.fillRect(0, 150, W, 6);
+  ctx.fillStyle = '#fff';
+  ctx.font = '800 50px -apple-system, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillText('CHARPENTE du Léon', 60, 78);
+  ctx.fillStyle = '#e9d9c6';
+  ctx.font = '500 32px -apple-system, "Segoe UI", sans-serif';
+  ctx.fillText(titre, 60, 124);
+  ctx.textAlign = 'right';
+  ctx.fillText(new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }), W - 60, 124);
+  ctx.textAlign = 'left';
+}
+
+function piedFeuille(ctx, W, H, texte) {
+  ctx.fillStyle = '#f2f3f7';
+  ctx.fillRect(0, H - 90, W, 90);
+  ctx.fillStyle = '#55596a';
+  ctx.font = '400 26px -apple-system, "Segoe UI", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(texte, 60, H - 38);
+}
+
+function coteSurPlan(ctx, A, B, texte, mesuree, f = 1, inconnu = false) {
+  const ang = Math.atan2(B.y - A.y, B.x - A.x);
+  ctx.save();
+  ctx.strokeStyle = inconnu ? '#d63c2f' : '#23376d';
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = 3 * f;
+  ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+  for (const [P, sens] of [[A, 1], [B, -1]]) {
+    ctx.beginPath();
+    ctx.moveTo(P.x, P.y);
+    ctx.lineTo(P.x + sens * 22 * f * Math.cos(ang - 0.35), P.y + sens * 22 * f * Math.sin(ang - 0.35));
+    ctx.lineTo(P.x + sens * 22 * f * Math.cos(ang + 0.35), P.y + sens * 22 * f * Math.sin(ang + 0.35));
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(P.x - 16 * f * Math.cos(ang + Math.PI / 2), P.y - 16 * f * Math.sin(ang + Math.PI / 2));
+    ctx.lineTo(P.x + 16 * f * Math.cos(ang + Math.PI / 2), P.y + 16 * f * Math.sin(ang + Math.PI / 2));
+    ctx.stroke();
+  }
+  // Texte posé sur la cote, dans le sens de lecture.
+  let a = ang;
+  if (a > Math.PI / 2) a -= Math.PI; else if (a < -Math.PI / 2) a += Math.PI;
+  ctx.translate((A.x + B.x) / 2, (A.y + B.y) / 2);
+  ctx.rotate(a);
+  ctx.font = `700 ${30 * f}px -apple-system, "Segoe UI", sans-serif`;
+  const l = ctx.measureText(texte).width + 22 * f;
+  ctx.fillStyle = inconnu ? '#fde8e6' : mesuree ? '#fff4dc' : '#fff';
+  ctx.strokeStyle = inconnu ? '#d63c2f' : mesuree ? '#b8956b' : '#c7cbd6';
+  ctx.lineWidth = 2 * f;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(-l / 2, -21 * f, l, 42 * f, 21 * f); else ctx.rect(-l / 2, -21 * f, l, 42 * f);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = inconnu ? '#d63c2f' : '#23376d';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(texte, 0, 1);
+  ctx.restore();
+}
+
+function motifBardage(ctx) {
+  const m = document.createElement('canvas');
+  m.width = 18; m.height = 18;
+  const c = m.getContext('2d');
+  c.fillStyle = '#eef1f6'; c.fillRect(0, 0, 18, 18);
+  c.fillStyle = '#b9c2d3'; c.fillRect(0, 0, 2, 18);
+  return ctx.createPattern(m, 'repeat');
+}
+
+function pageEsquisse(s, m) {
+  const W = 2400, H = 1700;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  const chantier = $('#releve-chantier').value;
+  bandeauFeuille(ctx, W, `Relevé de mesures${chantier ? ` · ${chantier}` : ''}`);
+
+  dessinerPlan(ctx, { x: 60, y: 200, w: 1500, h: 1380 }, s, 1);
+
+  // Colonne de droite : mesures, surfaces, quantités.
+  let y = 230;
+  const X = 1640, XD = W - 60;
+  const titre = (t) => {
+    ctx.fillStyle = '#b8956b'; ctx.font = '800 26px -apple-system, "Segoe UI", sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(t.toUpperCase(), X, y); y += 18;
+    ctx.fillStyle = '#e3e3e8'; ctx.fillRect(X, y, XD - X, 2); y += 40;
+  };
+  const ligne = (a, b, gras = false) => {
+    if (y > H - 130) return;
+    ctx.fillStyle = '#1c1c1e'; ctx.font = `${gras ? 700 : 400} 28px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'left';
+    let texteA = a;
+    while (ctx.measureText(texteA).width > 470 && texteA.length > 4) texteA = texteA.slice(0, -2);
+    ctx.fillText(texteA === a ? a : `${texteA}…`, X, y);
+    ctx.font = `700 28px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'right'; ctx.fillStyle = '#23376d';
+    ctx.fillText(b, XD, y); y += 44;
+  };
+  titre('Cotes');
+  m.cotes.forEach((e, i) => ligne(`${e.nom || `Cote ${i + 1}`}${e.valeur > 0 ? ' ✓' : e.suppose ? ' (supposé)' : ''}`, `${texteValeur(e, s).replace(' ✓', '').replace('≈ ', '')} m`));
+  if (m.surfaces.length || m.ouvertures.length) {
+    y += 16; titre('Surfaces');
+    for (const e of [...m.surfaces, ...m.ouvertures]) ligne(nomElement(e), `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
+    if (m.surfaces.length) ligne('Surface nette', `${fmtNb(m.net, 2)} m²`, true);
+  }
+  if (R.mode === 'saisie' && (R.lineaires.length || m.toiture)) {
+    y += 16; titre('Toiture et linéaires');
+    if (m.toiture) ligne('Surface de toiture', `${fmtNb(m.toiture, 2)} m²`);
+    for (const [a, b] of R.lineaires) ligne(a, b);
+  }
+  const q = quantitesReleve(m);
+  if (q.length) { y += 16; titre(NOMS_OUVRAGES[R.ouvrage]); for (const [a, b] of q) ligne(a, b); }
+
+  piedFeuille(ctx, W, H, R.mode === 'saisie'
+    ? `✓ = mesuré sur place · autres cotes calculées par l'appli${R.alertes.length ? ' · ⚠ certaines mesures ne collent pas entre elles, à revérifier' : ''} · à confirmer avant commande`
+    : `✓ = mesuré sur place · autres cotes calculées sur la photo (échelle sur ${s.refs} mesure${s.refs > 1 ? 's' : ''}${s.refs >= 3 ? `, écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}) · à confirmer avant commande`);
+  return c.toDataURL('image/jpeg', 0.86);
+}
+
+// Dessin propre (esquisse cotée) dans une zone du canevas : sert à la feuille et à l'aperçu de la saisie.
+// f grossit les traits et les textes (aperçu sur le téléphone).
+function dessinerPlan(ctx, zone, s, f = 1) {
+  const tous = R.elements.flatMap((e) => (e.type === 'cote' ? [e.a, e.b] : e.pts)).map((p) => ({ x: p.x * s.sx, y: p.y * s.sy }));
+  if (!tous.length) return;
+  const minX = Math.min(...tous.map((p) => p.x)), maxX = Math.max(...tous.map((p) => p.x));
+  const minY = Math.min(...tous.map((p) => p.y)), maxY = Math.max(...tous.map((p) => p.y));
+  const k = Math.min((zone.w - 130 * f) / Math.max(maxX - minX, 0.01), (zone.h - 90 * f) / Math.max(maxY - minY, 0.01));
+  const ox = zone.x + (zone.w - (maxX - minX) * k) / 2, oy = zone.y + (zone.h - (maxY - minY) * k) / 2;
+  const P = (p) => ({ x: ox + (p.x * s.sx - minX) * k, y: oy + (p.y * s.sy - minY) * k });
+
+  const motif = motifBardage(ctx);
+  for (const type of ['surface', 'ouverture']) {
+    for (const e of R.elements.filter((x) => x.type === type)) {
+      ctx.save();
+      ctx.beginPath();
+      e.pts.map(P).forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.fillStyle = type === 'ouverture' ? '#fff' : motif;
+      ctx.fill();
+      ctx.strokeStyle = '#23376d';
+      ctx.lineWidth = (type === 'ouverture' ? 3 : 5) * f;
+      if (type === 'ouverture') ctx.setLineDash([16 * f, 10 * f]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  const complet = !R.incomplet.length;
+  for (const e of R.elements.filter((x) => x.type !== 'cote')) {
+    const cc = P(pointEtiquette(e));
+    ctx.fillStyle = e.type === 'ouverture' ? '#a33a2f' : '#23376d';
+    ctx.font = `600 ${28 * f}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(nomElement(e), cc.x, cc.y - 18 * f);
+    ctx.font = `400 ${26 * f}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillText(complet && !e.inconnu ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²` : '? m²', cc.x, cc.y + 18 * f);
+  }
+  for (const e of R.elements.filter((x) => x.type === 'cote')) {
+    coteSurPlan(ctx, P(e.a), P(e.b), `${e.nom && !e.court ? `${e.nom} ` : ''}${texteValeur(e, s)}`, e.valeur > 0, f, e.inconnu);
+  }
+}
+
+function pagePhoto(s) {
+  const W = 2400, H = 1700;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  const chantier = $('#releve-chantier').value;
+  const saisie = R.mode === 'saisie';
+  bandeauFeuille(ctx, W, `${saisie ? 'Photo' : 'Photo cotée'}${chantier ? ` · ${chantier}` : ''}`);
+  const tmp = document.createElement('canvas');
+  tmp.width = R.img.width; tmp.height = R.img.height;
+  const t = tmp.getContext('2d');
+  t.drawImage(R.img, 0, 0);
+  if (!saisie) dessinerReleveSur(t, epReleve(tmp), s);
+  const zone = { x: 60, y: 190, w: W - 120, h: H - 190 - 120 };
+  const k = Math.min(zone.w / tmp.width, zone.h / tmp.height);
+  const w = tmp.width * k, h = tmp.height * k;
+  ctx.drawImage(tmp, zone.x + (zone.w - w) / 2, zone.y + (zone.h - h) / 2, w, h);
+  piedFeuille(ctx, W, H, saisie ? 'Photo prise sur place' : 'Jaune ✓ : mesuré sur place · blanc ≈ : calculé sur la photo · bleu : surfaces · rouge : ouvertures déduites');
+  return c.toDataURL('image/jpeg', 0.82);
+}
+
+function creerFeuille() {
+  const s = echelleReleve();
+  if (!s) { toast('Il faut au moins une cote mesurée sur place.', 'erreur'); return; }
+  if (!R.elements.length) return;
+  if (R.incomplet.length) { toast(`Il manque : ${R.incomplet.join(', ')}.`, 'erreur'); return; }
+  R.feuilles = [pageEsquisse(s, metreReleve(s)), ...(R.img ? [pagePhoto(s)] : [])];
+  $('#feuille-pages').replaceChildren(...R.feuilles.map((d, i) => el('img', { src: d, alt: `Page ${i + 1} de la feuille de relevé` })));
+  $('#feuille-ranger').disabled = false;
+  afficher('feuille');
+}
+
+async function rangerFeuille() {
+  const chantier = $('#releve-chantier').value;
+  if (!chantier) { toast('Choisis le chantier en bas du relevé.', 'erreur'); afficher('releve'); return; }
+  $('#feuille-ranger').disabled = true;
+  const commun = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: R.feuilles.length, type: '', chantier, note: 'Relevé de mesures' };
+  const envois = R.feuilles.map((d, i) => ({ ...commun, page: i + 1, fichier: { mime: 'image/jpeg', data: d.split(',')[1] } }));
+  const { tousPartis } = await mettreEnFile(envois);
+  toast(tousPartis ? `Relevé rangé dans ${chantier} ✅` : 'Pas de réseau : le relevé partira tout seul.', tousPartis ? 'ok' : '');
+}
+
+async function partagerFeuille() {
+  const fichiers = R.feuilles.map((d, i) => new File([deBase64(d.split(',')[1])], `Releve-${i + 1}.jpg`, { type: 'image/jpeg' }));
+  if (navigator.canShare?.({ files: fichiers })) {
+    try { await navigator.share({ files: fichiers, title: 'Relevé de mesures', text: texteMetre() }); } catch { /* partage annulé */ }
+  } else toast('Partage indisponible sur cet appareil.', 'erreur');
+}
+
+async function copierMetre() {
+  try { await navigator.clipboard.writeText(texteMetre()); toast('Métré copié 📋', 'ok'); } catch { toast('Copie impossible.', 'erreur'); }
+}
+
+// ===================== Recherche globale =====================
+// Tout ce que le téléphone connaît déjà (marche sans réseau) : chantiers, clients, adresses, documents et notes
+// des fiches ouvertes, choses à faire, rendez-vous. Sans accents ni majuscules, tous les mots doivent y être.
+const sansAccent = (c) => (c.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()[0] || c.toLowerCase());
+const normaliser = (t) => [...String(t || '')].map(sansAccent).join('');
+const motsDe = (t) => normaliser(t).split(/[\s,;'’]+/).filter((m) => m.length > 0);
+const correspond = (texte, mots) => { const n = normaliser(texte); return mots.every((m) => n.includes(m)); };
+
+// Met en évidence les mots trouvés (la normalisation garde un caractère pour un caractère).
+function surligner(texte, mots) {
+  texte = String(texte || '');
+  const n = normaliser(texte);
+  const marques = new Array(texte.length).fill(false);
+  for (const m of mots) {
+    let i = n.indexOf(m);
+    while (i >= 0) { for (let k = i; k < i + m.length; k++) marques[k] = true; i = n.indexOf(m, i + m.length); }
+  }
+  const frag = document.createDocumentFragment();
+  let i = 0;
+  const chars = [...texte];
+  // [...texte] et texte.length diffèrent pour les émojis : on travaille sur les caractères visibles.
+  if (chars.length !== texte.length) { frag.append(texte); return frag; }
+  while (i < chars.length) {
+    let j = i;
+    while (j < chars.length && marques[j] === marques[i]) j++;
+    const morceau = chars.slice(i, j).join('');
+    frag.append(marques[i] ? el('mark', {}, morceau) : morceau);
+    i = j;
+  }
+  return frag;
+}
+
+function fichesEnCache() {
+  return Object.keys(coffre).filter((k) => k.startsWith('fiche:')).map((k) => lireJson(k, null)).filter((f) => f && f.nom);
+}
+
+function ouvrirRecherche() {
+  afficher('recherche');
+  $('#recherche-texte').value = '';
+  dessinerRecherche();
+  setTimeout(() => $('#recherche-texte').focus(), 50);
+}
+
+function noterRecherche(texte) {
+  const t = texte.trim();
+  if (t.length < 2) return;
+  ecrireJson('recherches', [t, ...lireJson('recherches', []).filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 6));
+}
+
+function dessinerRecherche() {
+  const zone = $('#recherche-resultats');
+  const texte = $('#recherche-texte').value;
+  const mots = motsDe(texte);
+  const fiches = fichesEnCache();
+  if (!mots.length) {
+    const recentes = lireJson('recherches', []);
+    zone.replaceChildren(
+      recentes.length ? el('section', { class: 'carte' }, el('h2', {}, 'Recherches récentes'),
+        el('div', { class: 'puces' }, ...recentes.map((r) => el('button', { class: 'puce', onclick: () => { $('#recherche-texte').value = r; dessinerRecherche(); } }, r)))) : null,
+      el('p', { class: 'discret centre petit-texte' },
+        `Cherche dans tes ${listeChantiers().length} chantiers, les choses à faire, l'agenda, et les documents et notes des ${fiches.length} fiches déjà ouvertes sur le téléphone. Marche sans réseau.`));
+    return;
+  }
+  const groupes = [];
+  const ficheDe = Object.fromEntries(fiches.map((f) => [f.nom, f]));
+
+  const chantiers = listeChantiers().filter((c) => {
+    const f = ficheDe[c.nom] || {};
+    return correspond([c.nom, c.client, f.adresse, f.telephone, statutDe(c.statut)].join(' '), mots);
+  }).slice(0, 12);
+  if (chantiers.length) {
+    groupes.push(['🏗️ Chantiers', chantiers.map((c) => {
+      const f = ficheDe[c.nom] || {};
+      const tel = (f.telephone || '').replace(/[^\d+]/g, '');
+      return el('li', { class: `resultat ${classeStatut(c.statut)}` },
+        el('button', { class: 'resultat-corps', onclick: () => { noterRecherche(texte); ouvrirFiche(c.nom); } },
+          el('span', { class: 'avatar', style: `background:${couleurDe(c.nom)}` }, initiales(c.nom) || '🏗️'),
+          el('span', { class: 'corps' }, el('div', { class: 'nom' }, surligner(c.nom, mots)),
+            el('div', { class: 'info' }, surligner([c.client, f.adresse].filter(Boolean).join(' · ') || statutDe(c.statut), mots)))),
+        tel ? el('a', { class: 'resultat-appel', href: `tel:${tel}`, 'aria-label': `Appeler ${c.client || c.nom}` }, '📞') : null);
+    })]);
+  }
+
+  const docs = [];
+  const notes = [];
+  for (const f of fiches) {
+    for (const r of f.rubriques || []) {
+      for (const fi of r.fichiers || []) if (correspond(`${fi.nom} ${r.titre}`, mots)) docs.push({ ...fi, chantier: f.nom });
+    }
+    for (const n of f.notes || []) if (correspond(n.texte, mots)) notes.push({ ...n, chantier: f.nom });
+  }
+  if (docs.length) {
+    docs.sort((a, b) => new Date(b.date) - new Date(a.date));
+    groupes.push(['📄 Documents', docs.slice(0, 15).map((fi) => {
+      const icone = fi.type === 'application/pdf' ? '📄' : fi.type?.startsWith('image/') ? '🖼️' : '📎';
+      const date = fi.date ? new Date(fi.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+      return el('li', { class: 'resultat' }, el('a', { class: 'resultat-corps', href: fi.url, target: '_blank', rel: 'noopener', onclick: () => noterRecherche(texte) },
+        el('span', { class: 'resultat-ico' }, icone),
+        el('span', { class: 'corps' }, el('div', { class: 'nom' }, surligner(fi.nom.replace(/^\d{4}-\d{2}-\d{2}[ _]/, ''), mots)),
+          el('div', { class: 'info' }, [fi.chantier, date].filter(Boolean).join(' · ')))));
+    })]);
+  }
+  if (notes.length) {
+    groupes.push(['🎙️ Notes', notes.slice(0, 10).map((n) => el('li', { class: 'resultat' },
+      el('button', { class: 'resultat-corps', onclick: () => { noterRecherche(texte); ouvrirFiche(n.chantier); } },
+        el('span', { class: 'resultat-ico' }, n.type === 'Idée' ? '💡' : n.type === 'Info' ? 'ℹ️' : '✅'),
+        el('span', { class: 'corps' }, el('div', { class: 'nom long' }, surligner(n.texte, mots)), el('div', { class: 'info' }, `${n.chantier} · ${n.date}`)))))]);
+  }
+
+  const taches = tachesAffichees().filter((t) => correspond(`${t.texte} ${t.chantier || ''}`, mots)).slice(0, 10);
+  if (taches.length) {
+    groupes.push(['✅ À faire', taches.map((t) => el('li', { class: 'resultat' },
+      el('button', { class: 'resultat-corps', onclick: () => { noterRecherche(texte); ouvrirOnglet('taches'); } },
+        el('span', { class: 'resultat-ico' }, '○'),
+        el('span', { class: 'corps' }, el('div', { class: 'nom long' }, surligner(t.texte, mots)), el('div', { class: 'info' }, [t.chantier, t.date].filter(Boolean).join(' · ') || ' ')))))]);
+  }
+
+  const rdv = (lireJson('agenda', []) || []).filter((e) => correspond(`${e.titre} ${e.lieu || ''}`, mots)).slice(0, 8);
+  if (rdv.length) {
+    groupes.push(['📅 Rendez-vous', rdv.map((e) => el('li', { class: 'resultat' },
+      el('div', { class: 'resultat-corps' }, el('span', { class: 'resultat-ico' }, '📅'),
+        el('span', { class: 'corps' }, el('div', { class: 'nom' }, surligner(e.titre, mots)), el('div', { class: 'info' }, `${jourLisible(e.debut, e.journee)}${e.lieu ? ' · ' + e.lieu : ''}`)))))]);
+  }
+
+  if (!groupes.length) {
+    zone.replaceChildren(el('p', { class: 'etat-vide' }, el('span', {}, '🔍'), `Rien trouvé pour « ${texte.trim()} ».`),
+      el('p', { class: 'discret centre petit-texte' }, 'Les documents d\'un chantier sont cherchés une fois sa fiche ouverte sur le téléphone.'));
+    return;
+  }
+  zone.replaceChildren(...groupes.map(([titre, lignes]) => el('section', { class: 'groupe-resultats' },
+    el('h3', { class: 'titre-section' }, `${titre} · ${lignes.length}`), el('ul', { class: 'liste-cartes' }, ...lignes))));
 }
 
 // ===================== Ma journée : anneaux, série, fête =====================
@@ -1667,18 +3003,15 @@ function chargerHeures(ensuite) {
   });
 }
 
-// La tuile « Heures » de l'accueil dit tout : ✓ et le total une fois pointé, pastille orange à partir de 16 h sinon.
 function majAccueilHeures() {
   const auj = heuresDuJour(jourIso(new Date()));
   const total = auj.reduce((s, h) => s + h.heures, 0);
-  const aPointer = !auj.length && new Date().getHours() >= 16;
-  const texte = $('#tuile-heures-texte');
-  texte.replaceChildren(...(auj.length ? [heuresLisibles(total), el('br'), 'pointées'] : ['Heures', el('br'), 'du jour']));
-  const pastille = $('#tuile-heures-pastille');
-  pastille.textContent = auj.length ? '✓' : '!';
-  pastille.className = `pastille-tuile${auj.length ? ' ok' : aPointer ? '' : ' cache'}`;
-  $('#tuile-heures').classList.toggle('a-faire', aPointer);
-  $('#tuile-heures').setAttribute('aria-label', auj.length ? `Heures du jour : ${heuresLisibles(total)} pointées` : 'Heures du jour : pas encore pointées');
+  const personnes = new Set(auj.map((h) => h.compagnon)).size;
+  const chantiers = [...new Set(auj.map((h) => h.chantier))];
+  $('#accueil-heures').textContent = auj.length
+    ? `${personnes} personne${personnes > 1 ? 's' : ''} · ${heuresLisibles(total)} · ${chantiers.slice(0, 2).join(', ')}${chantiers.length > 2 ? '…' : ''}`
+    : new Date().getHours() >= 16 ? 'Pas encore pointées : touche pour pointer' : 'Pas encore pointées';
+  $('#carte-heures').classList.toggle('a-faire', !auj.length && new Date().getHours() >= 16);
   majJournee();
 }
 
@@ -1829,7 +3162,7 @@ function dessinerSemaine() {
   $('#heures-semaine-total').textContent = totalSemaine ? `${heuresLisibles(totalSemaine)} au total` : '';
 }
 
-// --- Récap du mois (pour la paie : COGEP jusqu'à octobre 2026, Gurvan chez C2C Conseils ensuite) ---
+// --- Récap du mois (pour la paie, Nelly) ---
 const recapCache = {}; // mois plus anciens que 3 mois, lus à la demande
 
 async function heuresDuMois(mois) {
@@ -1873,11 +3206,9 @@ async function dessinerRecap() {
   if (!noms.length) {
     $('#recap-liste').replaceChildren(el('li', {}, el('span', { class: 'discret' }, 'Aucune heure pointée ce mois-ci.')));
     $('#btn-copier-recap').disabled = true;
-    $('#btn-envoyer-recap').disabled = true;
     return;
   }
   $('#btn-copier-recap').disabled = false;
-  $('#btn-envoyer-recap').disabled = false;
   $('#recap-liste').replaceChildren(
     ...noms.map((n) => el('li', {}, el('span', {}, n, el('small', {}, ` · ${parCompagnon[n].jours.size} jour${parCompagnon[n].jours.size > 1 ? 's' : ''}`)), el('b', {}, heuresLisibles(parCompagnon[n].heures)))),
     el('li', { class: 'sous-titre-liste' }, el('span', {}, 'Par chantier')),
@@ -1885,13 +3216,10 @@ async function dessinerRecap() {
   pointage.recap = { mois, heures, noms };
 }
 
-// Texte pour le cabinet qui fait la paie : total et détail jour par jour de chaque compagnon.
-// Paie : Gurvan Le Gall, C2C Conseils (depuis la fin de la mission COGEP, octobre 2026).
-const PAIE = { prenom: 'Gurvan', mail: 'g.legall@c2c-conseils.com' };
-
-function texteRecap() {
+// Texte pour Nelly (COGEP) : total et détail jour par jour de chaque compagnon.
+async function copierRecap() {
   const r = pointage.recap;
-  if (!r) return '';
+  if (!r) return;
   const lignes = [`Heures de ${nomDuMois(r.mois)} – SARL Charpente du Léon`, ''];
   for (const n of r.noms) {
     const siennes = r.heures.filter((h) => h.compagnon === n).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -1902,24 +3230,9 @@ function texteRecap() {
     lignes.push(Object.entries(parJour).map(([j, h]) => `${dateDeIso(j).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })} ${heuresLisibles(h)}`).join(' · '));
     lignes.push('');
   }
-  return lignes.join('\n');
-}
-
-// Ouvre Mail avec le récap déjà écrit : il ne reste qu'à relire et envoyer.
-function envoyerRecap() {
-  const r = pointage.recap;
-  if (!r) return;
-  const sujet = `Heures de ${nomDuMois(r.mois)} – SARL Charpente du Léon`;
-  const corps = `Bonjour ${PAIE.prenom},\n\nVoici les heures du mois pour les fiches de paie.\n\n${texteRecap()}\nBonne journée,\nJean-Phi\nSARL Charpente du Léon`;
-  window.location.href = `mailto:${PAIE.mail}?subject=${encodeURIComponent(sujet)}&body=${encodeURIComponent(corps)}`;
-}
-
-async function copierRecap() {
-  const texte = texteRecap();
-  if (!texte) return;
   try {
-    await navigator.clipboard.writeText(texte);
-    toast(`Récap copié : colle-le dans un mail à ${PAIE.prenom}.`, 'ok');
+    await navigator.clipboard.writeText(lignes.join('\n'));
+    toast('Récap copié : colle-le dans un mail à Nelly.', 'ok');
   } catch {
     toast('Copie impossible sur cet appareil.', 'erreur');
   }
@@ -2077,30 +3390,6 @@ function calculerRampant() {
     lignes.push(['Surface couverture (2 pans)', `${fr(surface, 1)} m²`], ['Avec 10 % de chutes', `${fr(surface * 1.1, 1)} m²`]);
   }
   ul.replaceChildren(...lignes.map(([a, b]) => el('li', {}, el('span', {}, a), el('b', {}, b))));
-}
-
-// Garder un calcul : il part en note « Info » dans le chantier choisi, comme une note dictée.
-// Rien ne se perd, et on le retrouve dans la fiche du chantier.
-function resumeCalculs() {
-  const lignes = ['Calcul de charpente'];
-  const champs = [['#calc-portee', 'Portée', 'm'], ['#calc-pente', 'Pente', '°'], ['#calc-debord', 'Débord', 'm'], ['#calc-long', 'Long. faîtage', 'm']];
-  const saisies = champs.filter(([sel]) => nombre(sel) !== null).map(([sel, t, u]) => `${t} ${fr(nombre(sel), u === '°' ? 1 : 2)} ${u}`);
-  if (saisies.length) lignes.push(saisies.join(' · '));
-  for (const li of $$('#calc-resultats li')) {
-    const [a, b] = [...li.children].map((x) => x.textContent);
-    if (a && b) lignes.push(`${a} : ${b}`);
-  }
-  return lignes.length > 2 ? lignes.join('\n') : '';
-}
-
-function ouvrirNoteCalcul(texte) {
-  ouvrirNote();
-  $('#note-texte').value = texte;
-  typeNote = 'Info';
-  for (const b of $$('#types-note .puce')) b.classList.toggle('active', b.dataset.type === typeNote);
-  // Liste des chantiers à jour, sans perdre un choix déjà fait.
-  rafraichirChantiers().then(() => remplirSelectChantiers($('#note-chantier'), $('#note-chantier').value, '— Aucun —'));
-  toast('Choisis le chantier, puis Enregistrer.');
 }
 
 // ===================== Réglages et autorisations =====================
@@ -2320,6 +3609,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (cible === 'calculs') { afficher('calculs'); calculerRampant(); }
       else if (cible === 'heures') ouvrirHeures();
       else if (cible === 'rentabilite') ouvrirRentabilite();
+      else if (cible === 'releve') ouvrirReleve();
       else afficher(cible);
     };
   }
@@ -2340,6 +3630,64 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('#btn-envoyer-doc').onclick = envoyerDocument;
 
+  // Dessiner sur une photo
+  const toile = $('#annot-canvas');
+  toile.onpointerdown = annotDebut;
+  toile.onpointermove = annotMouvement;
+  toile.onpointerup = annotFin;
+  toile.onpointercancel = () => { annot.enCours = null; redessinerAnnotation(); };
+  for (const b of $$('#annot-outils [data-outil]')) b.onclick = () => choisirOutil(b.dataset.outil);
+  for (const b of $$('#annot-couleurs [data-couleur]')) b.onclick = () => choisirCouleur(b.dataset.couleur);
+  choisirOutil(lire('annot-outil', 'fleche'));
+  choisirCouleur(COULEURS_ANNOT.includes(lire('annot-couleur')) ? lire('annot-couleur') : COULEURS_ANNOT[0]);
+  $('#annot-defaire').onclick = () => { annot.formes.pop(); redessinerAnnotation(); };
+  $('#annot-fermer').onclick = fermerAnnotation;
+  $('#annot-valider').onclick = validerAnnotation;
+
+  // Recherche globale
+  $('#btn-chercher').onclick = ouvrirRecherche;
+  $('#recherche-texte').oninput = dessinerRecherche;
+  $('#recherche-texte').onkeydown = (e) => { if (e.key === 'Enter') { noterRecherche(e.target.value); e.target.blur(); } };
+  $('#recherche-fermer').onclick = () => ouvrirOnglet('accueil');
+
+  // Relevé de mesures
+  $('#releve-photo').onclick = () => $('#releve-input').click();
+  $('#releve-galerie').onclick = () => $('#releve-galerie-input').click();
+  for (const id of ['#releve-input', '#releve-galerie-input']) {
+    $(id).onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f); };
+  }
+  $('#releve-reprendre').onclick = reprendreReleve;
+  $('#releve-saisie').onclick = () => demarrerReleve({ mode: 'saisie', chantier: $('#releve-chantier').value, gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } });
+  for (const b of $$('#gabarit-types [data-gabarit]')) b.onclick = () => choisirGabarit(b.dataset.gabarit);
+  $('#gabarit-ajouter-ouverture').onclick = () => { R.gabarit.ouvertures.push({ nom: '', l: '', h: '', x: '', s: '' }); dessinerOuvertures(); majReleve(); };
+  $('#gabarit-photo').onclick = () => $('#gabarit-photo-input').click();
+  $('#gabarit-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f, 'saisie'); };
+  const toileReleve = $('#releve-canvas');
+  toileReleve.onpointerdown = releveDebut;
+  toileReleve.onpointermove = releveMouvement;
+  toileReleve.onpointerup = releveFin;
+  toileReleve.onpointercancel = () => { cacherLoupe(); R.glisse = null; if (R.enCours?.type === 'cote') R.enCours = null; redessinerReleve(); };
+  for (const b of $$('#releve-outils [data-outil]')) b.onclick = () => choisirOutilReleve(b.dataset.outil);
+  $('#releve-defaire').onclick = defaireReleve;
+  $('#releve-fermer-surface').onclick = fermerSurface;
+  for (const b of $$('#releve-ouvrage [data-ouvrage]')) {
+    b.onclick = () => {
+      R.ouvrage = b.dataset.ouvrage;
+      for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x === b);
+      dessinerParamsReleve();
+      majReleve();
+    };
+  }
+  $('#releve-chantier').onchange = () => sauverBrouillonReleve();
+  $('#releve-fermer').onclick = () => (ecranPrecedent === 'fiche' ? afficher('fiche') : retourOnglet());
+  $('#releve-nouveau').onclick = nouveauReleve;
+  $('#releve-envoyer').onclick = creerFeuille;
+  $('#feuille-retour').onclick = () => afficher('releve');
+  $('#feuille-ranger').onclick = rangerFeuille;
+  $('#feuille-partager').onclick = partagerFeuille;
+  $('#feuille-copier').onclick = copierMetre;
+  $('#fiche-releve').onclick = () => ouvrirReleve(ficheCourante?.nom || '');
+
   // Import de la galerie
   $('#import-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; choisirImport(f); };
   $('#btn-import-choisir').onclick = () => $('#import-input').click();
@@ -2347,25 +3695,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Chantiers
   $('#chantiers-recherche').oninput = dessinerChantiers;
-  for (const b of $$('#onglets-chantiers [data-groupe]')) {
+  for (const b of $$('#filtres-statut [data-statut]')) {
     b.onclick = () => {
-      groupeChantiers = b.dataset.groupe;
-      ecrire('onglet-chantiers', groupeChantiers);
-      $('#chantiers-recherche').value = '';
+      filtreStatut = b.dataset.statut;
+      for (const x of $$('#filtres-statut [data-statut]')) x.classList.toggle('active', x === b);
       dessinerChantiers();
     };
   }
   $('#btn-pres-de-moi').onclick = async () => {
     const b = $('#btn-pres-de-moi');
-    if (triDistance) { triDistance = false; b.classList.remove('active'); dessinerChantiers(); toast('Tri par distance désactivé'); return; }
-    b.classList.add('attente');
+    if (triDistance) { triDistance = false; b.classList.remove('active'); dessinerChantiers(); return; }
+    b.textContent = '📍 Localisation…';
     const pos = await obtenirPosition();
-    b.classList.remove('attente');
+    b.textContent = '📍 Près de moi';
     if (!pos) { toast('Position indisponible (autorise la localisation).', 'erreur'); return; }
     triDistance = true;
     b.classList.add('active');
     dessinerChantiers();
-    toast('Chantiers les plus proches en premier 📍');
   };
   $('#fiche-photo').onclick = () => nouveauDocument('chantier', ficheCourante?.nom || '');
   $('#fiche-galerie').onclick = () => ouvrirImport(ficheCourante?.nom || '');
@@ -2381,6 +3727,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Heures, équipe, rentabilité
+  $('#carte-heures').onclick = () => ouvrirHeures();
   $('#heures-avant').onclick = () => changerJour(-1);
   $('#heures-apres').onclick = () => changerJour(1);
   $('#heures-chantier-tous').onchange = (e) => { if (e.target.value) pourTous('chantier', e.target.value); };
@@ -2389,7 +3736,6 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#recap-avant').onclick = () => decalerMois(-1);
   $('#recap-apres').onclick = () => decalerMois(1);
   $('#btn-copier-recap').onclick = copierRecap;
-  $('#btn-envoyer-recap').onclick = envoyerRecap;
   $('#btn-equipe').onclick = ouvrirEquipe;
   $('#equipe-retour').onclick = () => ouvrirHeures(pointage.date || jourIso(new Date()));
   $('#btn-ajouter-compagnon').onclick = () => { equipeEdition.push({ nom: '', cout: '', actif: true }); dessinerEquipe(); };
@@ -2413,11 +3759,6 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-envoyer-note').onclick = envoyerNote;
 
   // Calculs
-  $('#btn-garder-calcul').onclick = () => {
-    const texte = resumeCalculs();
-    if (!texte) { toast('Renseigne d\'abord la portée et la pente.', 'erreur'); return; }
-    ouvrirNoteCalcul(texte);
-  };
   $('#calc-pct').oninput = () => calculerPente('pct');
   $('#calc-deg').oninput = () => calculerPente('deg');
   for (const id of ['#calc-portee', '#calc-pente', '#calc-debord', '#calc-long']) $(id).oninput = calculerRampant;
@@ -2479,10 +3820,7 @@ async function demarrer() {
   await ouvrirCoffre();
   demarree = true;
   dernierePosition = lireJson('position', null);
-  const calculAGarder = lire('calcul-a-garder');
-  if (calculAGarder) localStorage.removeItem('calcul-a-garder');
   if (lire('bienvenue-ok') !== '1') ouvrirBienvenue();
-  else if (calculAGarder) ouvrirNoteCalcul(calculAGarder);
   else ouvrirOnglet('accueil');
   await appairageAutomatique();
   viderFile();

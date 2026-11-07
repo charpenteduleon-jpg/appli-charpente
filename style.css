@@ -670,111 +670,126 @@ body.masque > :not(#verrou) { filter: blur(18px); }
   .anneaux .anneau, .case, .barre-onglets * { transition: none !important; animation: none !important; }
 }
 
-/* =====================================================================
-   Version 1.8 : l'essentiel d'abord
-   En-tête plus compact (la météo remonte), bande des rafales pour le levage,
-   chantiers en trois rubriques, point du jour mis en page, tâches datées.
-   ===================================================================== */
-
-/* ---------- En-tête plus compact ---------- */
-.hero { padding-bottom: 16px; }
-.hero h1 { font-size: 30px; }
-.journee { margin-top: 12px; gap: 14px; }
-.anneaux { width: 84px; height: 84px; }
-.anneaux circle { stroke-width: 12; }
-#anneaux-score { font-size: 15px; }
-.objectifs { gap: 5px; font-size: 13.5px; }
-.serie { margin-top: 12px; padding: 7px 12px; font-size: 13px; font-weight: 600; background: rgba(255,255,255,.09); }
-
-/* ---------- Tuile « Heures » avec son état ---------- */
-.action { position: relative; }
-.action .tuile { position: relative; }
-.pastille-tuile {
-  position: absolute; top: -5px; right: -7px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
-  display: grid; place-items: center; font-size: 12px; font-weight: 800; font-style: normal; line-height: 1;
-  background: var(--orange); color: #fff; box-shadow: 0 0 0 2px var(--carte);
+/* ===================== Version 1.8 : dessiner sur une photo, recherche globale ===================== */
+/* Barre de recherche dans l'en-tête de l'accueil */
+.barre-chercher {
+  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 12px; padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 14px; background: rgba(255,255,255,.12);
+  color: rgba(255,255,255,.78); font: inherit; font-size: 15px; text-align: left; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
-.pastille-tuile.ok { background: var(--vert); }
-.action.a-faire { box-shadow: inset 0 0 0 2px var(--orange), var(--ombre); }
-.action.a-faire #tuile-heures-texte { color: var(--orange); }
+.barre-chercher:active { background: rgba(255,255,255,.2); transform: scale(.99); }
+.barre-chercher svg { width: 19px; height: 19px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
 
-/* ---------- Bande des rafales (levage) ---------- */
-.bande-rafales { margin-top: 12px; padding: 10px 12px 6px; border-radius: 14px; background: rgba(255,255,255,.12); }
-.bande-titre { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; color: rgba(255,255,255,.9); margin-bottom: 6px; }
-.bande-titre .legende { display: flex; align-items: center; gap: 5px; font-weight: 600; color: rgba(255,255,255,.75); }
-.bande-titre .legende i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-left: 4px; }
-.bande-titre .legende i.vert { background: #5fe39a; }
-.bande-titre .legende i.rouge { background: #ff7b6e; }
-.barres { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; height: 62px; align-items: end; }
-.rafale { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 2px; }
-.rafale .barre { width: 100%; border-radius: 4px 4px 2px 2px; min-height: 4px; }
-.rafale.vert .barre { background: #5fe39a; }
-.rafale.orange .barre { background: #ffc35c; }
-.rafale.rouge .barre { background: #ff7b6e; }
-.rafale.passee { opacity: .35; }
-.rafale small { font-size: 9px; height: 11px; line-height: 11px; color: rgba(255,255,255,.75); font-variant-numeric: tabular-nums; }
-
-/* ---------- Chantiers : En cours / À venir / Terminés ---------- */
-.ligne-recherche { display: flex; gap: 8px; align-items: center; }
-.ligne-recherche input { flex: 1; min-width: 0; }
-.btn-pres {
-  flex: none; width: 48px; height: 48px; border-radius: 12px; border: 1px solid var(--bord); background: var(--carte);
-  font-size: 20px; display: grid; place-items: center;
+.recherche-haut { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: calc(env(safe-area-inset-top) + 8px) 0 10px; background: var(--fond); }
+.recherche-haut input { flex: 1; margin: 0; font-size: 17px; padding: 12px 14px; border-radius: 14px; }
+.recherche-haut .lien { flex: none; font-size: 16px; }
+.groupe-resultats .titre-section { margin-top: 16px; }
+.resultat { display: flex; align-items: stretch; gap: 8px; margin-bottom: 10px; }
+.liste-cartes li.resultat .resultat-corps, .resultat .resultat-corps {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin: 0;
+  border: none; border-radius: var(--rayon); background: var(--carte); box-shadow: var(--ombre);
+  color: inherit; text-decoration: none; text-align: left; font: inherit;
 }
-.btn-pres.active { background: var(--bleu); border-color: var(--bleu); }
-.btn-pres.attente { animation: brille 1s infinite linear; }
-.segment-chantiers { margin: 12px 0 6px; }
-.segment-chantiers button { font-size: 14px; padding: 9px 2px; display: flex; align-items: center; justify-content: center; gap: 6px; }
-.segment-chantiers .compte {
-  min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; font-size: 12px; line-height: 20px;
-  background: var(--fond); color: var(--texte-doux); font-variant-numeric: tabular-nums;
+.resultat-ico { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--bleu-clair); font-size: 19px; }
+.resultat .avatar { width: 40px; height: 40px; }
+.resultat .nom.long { white-space: normal; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.resultat-appel { flex: none; width: 54px; display: grid; place-items: center; border-radius: var(--rayon); background: var(--vert-clair); font-size: 22px; text-decoration: none; box-shadow: var(--ombre); }
+.resultat mark { background: rgba(213,172,131,.38); color: inherit; border-radius: 4px; padding: 0 1px; }
+
+/* Vignettes du document : on touche une photo pour dessiner dessus */
+.page-image { display: block; width: 100%; padding: 0; border: none; background: none; border-radius: 12px; }
+.page-image img { display: block; }
+.page .annote { position: absolute; left: 6px; top: 6px; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: rgba(0,0,0,.6); font-size: 13px; }
+.astuce { margin: 2px 2px 10px; font-size: 13px; color: var(--texte-doux); }
+
+/* Écran de dessin : photo sur fond noir, outils en dessous */
+.annoter { background: #0b0b0d; color: #fff; min-height: 100vh; }
+body:has(#ecran-annoter:not(.cache)) { background: #0b0b0d; }
+.annoter .barre-haut strong { color: #fff; }
+.annoter .retour, .annoter .lien { color: #ffd28f; }
+.annot-scene { display: grid; place-items: center; margin: 4px -16px 12px; background: #000; min-height: 200px; }
+#annot-canvas { display: block; max-width: 100%; max-height: 58vh; width: auto; height: auto; touch-action: none; -webkit-user-select: none; user-select: none; }
+.annot-outils { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.annot-outils button {
+  display: grid; justify-items: center; gap: 3px; padding: 9px 2px 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 14px;
+  background: rgba(255,255,255,.07); color: rgba(255,255,255,.85); font: inherit; font-size: 12px; font-weight: 600;
 }
-.segment-chantiers button.active .compte { background: var(--bleu); color: #fff; }
-.segment-chantiers.estompe { opacity: .45; }
-.titre-groupe {
-  display: flex; justify-content: space-between; align-items: baseline; padding: 14px 6px 6px;
-  font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--texte-doux);
+.annot-outils button span { font-size: 21px; line-height: 1; font-weight: 700; }
+.annot-outils button.active { background: #fff; color: #111; border-color: #fff; }
+.annot-bas { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0 6px; }
+.annot-couleurs { display: flex; gap: 12px; }
+.annot-couleurs button { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.25); background: var(--c); padding: 0; transition: transform .2s var(--ressort); }
+.annot-couleurs button.active { border-color: #fff; transform: scale(1.15); box-shadow: 0 0 0 2px rgba(0,0,0,.6); }
+.annoter .btn-petit { width: auto; margin: 0; background: rgba(255,255,255,.12); color: #fff; }
+.annoter .btn-petit:disabled { opacity: .35; }
+.annoter .discret { color: rgba(255,255,255,.55); }
+
+/* ===================== Version 1.9 : relevé de mesures sur photo ===================== */
+.releve-depart { display: grid; gap: 12px; margin-top: 6px; }
+.releve-conseil { display: flex; gap: 14px; align-items: flex-start; padding: 16px; border-radius: var(--rayon); background: var(--carte); box-shadow: var(--ombre); }
+.releve-conseil .tuile { width: 46px; height: 46px; flex: none; display: grid; place-items: center; border-radius: 14px; font-size: 24px; }
+.releve-conseil strong { display: block; font-size: 16px; line-height: 1.3; }
+.releve-conseil ul { margin: 8px 0 0; padding-left: 18px; color: var(--texte-doux); font-size: 14px; display: grid; gap: 5px; }
+.releve-scene { position: relative; display: grid; place-items: center; margin: 4px -16px 0; background: #000; min-height: 200px; }
+#releve-canvas { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; touch-action: none; -webkit-user-select: none; user-select: none; }
+.loupe { position: absolute; top: 10px; left: 10px; width: 120px; height: 120px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 6px 20px rgba(0,0,0,.5); pointer-events: none; }
+.loupe.a-droite { left: auto; right: 10px; }
+.releve-aide { margin: 10px 2px; padding: 10px 12px; border-radius: 12px; background: var(--orange-clair); color: var(--texte); font-size: 14px; line-height: 1.35; }
+.releve-aide.ok { background: var(--vert-clair); }
+.releve-outils { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+.releve-outils button {
+  display: grid; justify-items: center; gap: 3px; padding: 9px 2px 8px; border: none; border-radius: 14px;
+  background: var(--carte); color: var(--texte); box-shadow: var(--ombre); font: inherit; font-size: 12px; font-weight: 600;
 }
-.liste-cartes .nom { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25; }
-.chevron-liste { display: block; font-size: 22px; color: var(--texte-doux); opacity: .6; line-height: 1; margin-top: 2px; }
-.liste-cartes .droite { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.releve-outils button span { font-size: 21px; line-height: 1; font-weight: 700; color: var(--bleu-vif); }
+.releve-outils button.active { background: var(--bleu); color: #fff; }
+.releve-outils button.active span { color: #ffd28f; }
+.releve-selection { position: relative; display: grid; gap: 10px; padding: 12px 40px 12px 14px; margin-bottom: 10px; border-radius: var(--rayon); background: var(--bleu-clair); }
+.releve-selection strong { font-size: 15px; }
+.releve-selection .selection-boutons { display: flex; gap: 8px; flex-wrap: wrap; }
+.releve-selection .btn-petit { width: auto; margin: 0; }
+.releve-selection .btn-petit.danger { background: var(--rouge); color: #fff; }
+.releve-selection .fermer { position: absolute; top: 6px; right: 8px; }
+#releve-fermer-surface { margin-bottom: 10px; }
+.resultats li.cliquable { cursor: pointer; }
+.resultats li.total { font-weight: 700; }
+.resultats li.vide { color: var(--texte-doux); justify-content: center; }
+.resultats li b.mesuree { color: #a8742e; }
+#releve-params .champ { margin: 6px 0; }
+#releve-params input { padding: 9px 10px; }
+.feuille-pages { display: grid; gap: 12px; margin: 6px 0 14px; }
+.feuille-pages img { width: 100%; border-radius: 12px; box-shadow: var(--ombre-forte); background: #fff; }
 
-/* ---------- Fiche : tous les boutons tiennent sur une ligne ---------- */
-.boutons-fiche { overflow: visible; margin: 4px 0 6px; padding: 4px 0; gap: 6px; }
-.bouton-rond { flex: 1 1 0; min-width: 0; padding: 10px 2px; font-size: 11px; }
-.bouton-rond span { font-size: 21px; }
-
-/* ---------- Point du jour mis en page ---------- */
-.point { white-space: normal; padding: 6px 18px 10px; }
-.point p { margin: 10px 0; }
-.point-rubrique { padding: 10px 0 4px; border-top: 1px solid var(--bord); }
-.point-rubrique:first-child { border-top: none; }
-.point-rubrique h3 { margin: 4px 0 6px; font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
-.point-liste { margin: 4px 0 8px; padding-left: 20px; }
-.point-liste li { margin: 5px 0; line-height: 1.4; }
-.point-liste li::marker { color: var(--or); }
-
-/* ---------- À faire : le chantier en étiquette, l'âge de la tâche ---------- */
-.liste-taches small { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.puce-chantier {
-  display: inline-block; max-width: 100%; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
-  background: var(--bleu-clair); color: var(--bleu-vif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* Relevé par saisie des mesures (1.9) */
+.choix-releve {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px; border: none; border-radius: var(--rayon);
+  background: var(--carte); box-shadow: var(--ombre); text-align: left; font: inherit; color: inherit;
 }
-.liste-taches li.ancienne small { color: var(--orange); font-weight: 600; }
-
-/* ---------- Lien vers un outil de calcul ---------- */
-a.carte-bouton { text-decoration: none; color: inherit; }
-.lien-outil small { line-height: 1.35; }
-.action #tuile-heures-texte { font-size: inherit; }
-.hero .etat.meteo-resume { color: #fff; font-weight: 600; font-size: 14px; }
-
-/* ---------- Statut ProGBat (lecture seule) ---------- */
-.statut-fiche { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 2px; }
-.statut-fiche .statut { font-size: 13px; padding: 5px 12px; }
-#btn-garder-calcul { margin-top: 14px; }
-.garder { margin-top: 4px; }
-
-/* ---------- Récap de paie ---------- */
-.recap-copier { display: block; margin: 10px auto 0; font-size: 15px; font-weight: 600; }
-.btn-c2c { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.btn-c2c img { width: 28px; height: 28px; border-radius: 7px; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+.choix-releve.recommande { box-shadow: var(--ombre), inset 0 0 0 2px var(--or); }
+.choix-releve .tuile { width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 14px; font-size: 25px; }
+.choix-releve strong { display: block; font-size: 17px; }
+.choix-releve small { display: block; margin-top: 3px; color: var(--texte-doux); font-size: 13.5px; line-height: 1.35; }
+.choix-releve i { margin-left: auto; font-style: normal; font-size: 24px; color: var(--texte-doux); }
+#releve-galerie { justify-self: center; }
+.gabarit-apercu { display: block; width: 100%; height: auto; border-radius: var(--rayon); background: #fff; box-shadow: var(--ombre); margin: 4px 0 0; }
+.carte h2 small { font-weight: 400; font-size: 12px; margin-left: 4px; }
+.champs-saisie { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.champ-saisie { margin: 6px 0; }
+.champ-saisie label { min-height: 2.4em; display: flex; align-items: flex-end; line-height: 1.2; }
+.champ-saisie input { font-size: 17px; font-weight: 600; padding: 10px 11px; }
+.champ-saisie input::placeholder { color: #8a8f9c; font-weight: 500; }
+.champ-saisie.calcule input { background: var(--vert-clair); }
+.champ-saisie.suppose input { background: var(--orange-clair); }
+.champ-saisie .calcul { min-height: 1em; font-size: 11.5px; color: var(--texte-doux); line-height: 1.25; }
+.champ-saisie.calcule .calcul { color: var(--vert); }
+.champ-saisie.suppose .calcul { color: var(--orange); }
+.ouverture-saisie { padding: 10px 0; border-top: 1px solid var(--bord); }
+.ouverture-entete { display: flex; align-items: center; gap: 8px; }
+.ouverture-entete .nom-ouverture { flex: 1; font-weight: 700; border: none; background: transparent; padding: 4px 0; font-size: 16px; }
+.ouverture-saisie .champ { margin: 4px 0; }
+#gabarit-ajouter-ouverture { margin-top: 8px; }
+.photo-jointe { display: grid; gap: 8px; margin: 12px 0; }
+.photo-vignette { position: relative; }
+.photo-vignette img { display: block; width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--rayon); }
+.photo-vignette .suppr { position: absolute; right: 8px; top: 8px; width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 18px; }
+#releve-aide strong, #gabarit-aide strong { display: block; margin-bottom: 4px; }

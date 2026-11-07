@@ -48,6 +48,10 @@
         </ul>
       </div>
       <p id="serie" class="serie"></p>
+      <button id="btn-chercher" class="barre-chercher">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+        <span>Chantier, client, document, note…</span>
+      </button>
     </header>
 
     <div id="bandeau-installer" class="bandeau cache">
@@ -86,7 +90,7 @@
     <div class="actions-rapides">
       <button class="action" data-ouvre="chantier"><span class="tuile t-or">🏗️</span>Photo<br>chantier</button>
       <button class="action" data-ouvre="note"><span class="tuile t-violet">🎙️</span>Note<br>rapide</button>
-      <button id="tuile-heures" class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️<b id="tuile-heures-pastille" class="pastille-tuile cache"></b></span><span id="tuile-heures-texte">Heures<br>du jour</span></button>
+      <button class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️</span>Heures<br>du jour</button>
       <button class="action" data-ouvre="point"><span class="tuile t-bleu">📋</span>Point<br>du jour</button>
     </div>
 
@@ -99,6 +103,12 @@
       <div class="carte-entete"><h2>Prochains rendez-vous</h2></div>
       <ul id="agenda-liste" class="liste-simple"><li class="squelette" style="height:40px"></li></ul>
     </section>
+
+    <button id="carte-heures" class="carte carte-bouton">
+      <span class="carte-bouton-ico tuile t-vert">⏱️</span>
+      <span class="carte-bouton-texte"><strong>Heures du jour</strong><small id="accueil-heures">Pas encore pointées</small></span>
+      <span class="chevron">›</span>
+    </button>
 
     <section id="carte-taches" class="carte">
       <div class="carte-entete"><h2>À faire</h2><button class="lien" data-onglet-vers="taches">Tout voir</button></div>
@@ -117,15 +127,16 @@
   <!-- ===================== CHANTIERS ===================== -->
   <section id="ecran-chantiers" class="ecran onglet cache" data-onglet="chantiers">
     <header class="titre-page"><h1>Chantiers</h1></header>
-    <div class="recherche ligne-recherche">
-      <input id="chantiers-recherche" type="search" placeholder="Chantier ou client…" autocomplete="off">
-      <button id="btn-pres-de-moi" class="btn-pres" aria-label="Trier par distance">📍</button>
+    <div class="recherche">
+      <input id="chantiers-recherche" type="search" placeholder="Chercher un chantier ou un client" autocomplete="off">
     </div>
-    <!-- Trois rubriques, comme on parle d'un chantier : en cours, à venir, terminé. -->
-    <div id="onglets-chantiers" class="segment segment-chantiers" role="tablist">
-      <button role="tab" data-groupe="en-cours" class="active">En cours</button>
-      <button role="tab" data-groupe="a-venir">À venir</button>
-      <button role="tab" data-groupe="termines">Terminés</button>
+    <div id="filtres-statut" class="puces defilant">
+      <button class="puce active" data-statut="">Tous</button>
+      <button class="puce" data-statut="En cours">En cours</button>
+      <button class="puce" data-statut="Devis accepté">Devis accepté</button>
+      <button class="puce" data-statut="Devis en attente">Devis en attente</button>
+      <button class="puce" data-statut="Finalisé">Finalisés</button>
+      <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
     </div>
     <ul id="chantiers-liste" class="liste-cartes"></ul>
   </section>
@@ -143,11 +154,12 @@
       <a id="fiche-itineraire" class="bouton-rond cache" target="_blank" rel="noopener"><span>🧭</span>Itinéraire</a>
       <button id="fiche-photo" class="bouton-rond"><span>📷</span>Photos</button>
       <button id="fiche-galerie" class="bouton-rond"><span>🖼️</span>Galerie</button>
+      <button id="fiche-releve" class="bouton-rond"><span>📏</span>Relevé</button>
       <button id="fiche-note" class="bouton-rond"><span>🎙️</span>Note</button>
       <a id="fiche-drive" class="bouton-rond" target="_blank" rel="noopener"><span>📁</span>Dossier</a>
     </div>
 
-    <div id="fiche-statut" class="statut-fiche"></div>
+    <div id="fiche-statut" class="segment"></div>
 
     <details id="fiche-infos" class="carte depliant">
       <summary>Infos du chantier</summary>
@@ -178,6 +190,7 @@
     <ul class="menu">
       <li><button data-ouvre="heures"><span>⏱️</span>Heures de l'équipe<i>›</i></button></li>
       <li><button data-ouvre="rentabilite"><span>💶</span>Rentabilité des chantiers<i>›</i></button></li>
+      <li><button data-ouvre="releve"><span>📏</span>Relevé de mesures sur photo<i>›</i></button></li>
     </ul>
     <ul class="menu">
       <li><button data-ouvre="point"><span>📋</span>Point du jour<i>›</i></button></li>
@@ -207,6 +220,7 @@
     </div>
 
     <div id="pages" class="pages"></div>
+    <p id="astuce-annoter" class="astuce cache">✏️ Touche une photo pour dessiner dessus : flèche, cote, cercle, texte.</p>
     <div class="deux-boutons">
       <button id="btn-ajouter-page" class="btn secondaire">📷 Prendre en photo</button>
       <button id="btn-galerie" class="btn secondaire">🖼️ Photos / fichiers</button>
@@ -249,6 +263,143 @@
     <div class="pied-fixe">
       <button id="btn-envoyer-doc" class="btn principal" disabled>Ajouter</button>
     </div>
+  </section>
+
+  <!-- ===================== DESSINER SUR UNE PHOTO ===================== -->
+  <section id="ecran-annoter" class="ecran plein annoter cache">
+    <div class="barre-haut">
+      <button id="annot-fermer" class="retour">Annuler</button>
+      <strong>Dessiner</strong>
+      <button id="annot-valider" class="lien gras">OK</button>
+    </div>
+    <div class="annot-scene"><canvas id="annot-canvas"></canvas></div>
+    <div id="annot-outils" class="annot-outils">
+      <button data-outil="fleche"><span>➚</span>Flèche</button>
+      <button data-outil="cote"><span>↔</span>Cote</button>
+      <button data-outil="cercle"><span>◯</span>Cercle</button>
+      <button data-outil="trait"><span>✎</span>Trait</button>
+      <button data-outil="texte"><span>T</span>Texte</button>
+    </div>
+    <div class="annot-bas">
+      <div id="annot-couleurs" class="annot-couleurs">
+        <button data-couleur="#ff3b30" style="--c:#ff3b30" aria-label="Rouge"></button>
+        <button data-couleur="#ffcc00" style="--c:#ffcc00" aria-label="Jaune"></button>
+        <button data-couleur="#ffffff" style="--c:#ffffff" aria-label="Blanc"></button>
+        <button data-couleur="#0a84ff" style="--c:#0a84ff" aria-label="Bleu"></button>
+      </div>
+      <button id="annot-defaire" class="btn-petit" disabled>↩︎ Défaire</button>
+    </div>
+    <p class="discret centre petit-texte">Glisse le doigt sur la photo. Pour une cote, tire le trait puis tape la mesure.</p>
+  </section>
+
+  <!-- ===================== RELEVÉ DE MESURES ===================== -->
+  <section id="ecran-releve" class="ecran plein releve cache">
+    <div class="barre-haut">
+      <button id="releve-fermer" class="retour">‹ Fermer</button>
+      <strong id="releve-titre">Relevé</strong>
+      <button id="releve-nouveau" class="lien">Nouveau</button>
+    </div>
+    <div id="releve-depart" class="releve-depart">
+      <button id="releve-saisie" class="choix-releve recommande">
+        <span class="tuile t-or">📐</span>
+        <span><strong>J'ai mes mesures</strong><small>Choisis la forme, tape ce que tu as mesuré : l'appli dessine et calcule ce qui manque (rampants, pentes, surfaces, quantités).</small></span>
+        <i>›</i>
+      </button>
+      <button id="releve-photo" class="choix-releve">
+        <span class="tuile t-bleu">📷</span>
+        <span><strong>Mesurer sur une photo</strong><small>Photo bien de face (objectif 1×) et une mesure prise sur place : on mesure le reste sur la photo.</small></span>
+        <i>›</i>
+      </button>
+      <button id="releve-galerie" class="lien">ou choisir une photo dans la galerie</button>
+      <button id="releve-reprendre" class="btn secondaire cache">↺ Reprendre le relevé en cours</button>
+    </div>
+    <div id="releve-travail" class="cache">
+      <div id="releve-zone-saisie" class="cache">
+        <div id="gabarit-types" class="segment">
+          <button data-gabarit="pignon" class="active">Pignon</button>
+          <button data-gabarit="appentis">Appentis</button>
+          <button data-gabarit="mur">Mur</button>
+          <button data-gabarit="pan">Pan de toit</button>
+        </div>
+        <canvas id="gabarit-apercu" class="gabarit-apercu" width="1200" height="780"></canvas>
+        <div id="gabarit-aide" class="releve-aide"></div>
+        <section class="carte">
+          <h2>Tes mesures <small class="discret">en mètres · laisse vide ce que tu n'as pas</small></h2>
+          <div id="gabarit-champs" class="champs-saisie"></div>
+        </section>
+        <section class="carte">
+          <h2>Ouvertures <small class="discret">portes, fenêtres, passages</small></h2>
+          <div id="gabarit-ouvertures"></div>
+          <button id="gabarit-ajouter-ouverture" class="btn secondaire">＋ Ajouter une ouverture</button>
+        </section>
+        <div class="photo-jointe">
+          <div id="gabarit-photo-vignette" class="photo-vignette"></div>
+          <button id="gabarit-photo" class="btn secondaire">📷 Joindre une photo (facultatif)</button>
+        </div>
+      </div>
+      <div id="releve-zone-photo">
+      <div class="releve-scene">
+        <canvas id="releve-canvas"></canvas>
+        <canvas id="releve-loupe" class="loupe cache" width="240" height="240"></canvas>
+      </div>
+      <p id="releve-aide" class="releve-aide"></p>
+      <div id="releve-selection" class="releve-selection cache"></div>
+      <div id="releve-outils" class="releve-outils">
+        <button data-outil="cote"><span>↔</span>Cote</button>
+        <button data-outil="surface"><span>▱</span>Surface</button>
+        <button data-outil="ouverture"><span>▢</span>Ouverture</button>
+        <button data-outil="modifier"><span>☝︎</span>Ajuster</button>
+        <button id="releve-defaire"><span>↩︎</span>Défaire</button>
+      </div>
+      <button id="releve-fermer-surface" class="btn principal cache">✓ Fermer la surface</button>
+      </div>
+      <section class="carte">
+        <h2>Métré</h2>
+        <ul id="releve-liste" class="resultats"></ul>
+      </section>
+      <section class="carte">
+        <h2>Quantitatif</h2>
+        <div id="releve-ouvrage" class="segment">
+          <button data-ouvrage="bardage" class="active">Bardage</button>
+          <button data-ouvrage="plaques">Plaques</button>
+          <button data-ouvrage="couverture">Couverture</button>
+          <button data-ouvrage="aucun">Rien</button>
+        </div>
+        <div id="releve-params" class="deux-champs"></div>
+        <ul id="releve-quantites" class="resultats"></ul>
+      </section>
+      <div class="bloc">
+        <p class="etiquette">Chantier</p>
+        <select id="releve-chantier"></select>
+      </div>
+      <div class="pied-fixe">
+        <button id="releve-envoyer" class="btn principal" disabled>📄 Créer la feuille de relevé</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== FEUILLE DE RELEVÉ ===================== -->
+  <section id="ecran-feuille" class="ecran plein cache">
+    <div class="barre-haut">
+      <button id="feuille-retour" class="retour">‹ Relevé</button>
+      <strong>Feuille de relevé</strong>
+      <span></span>
+    </div>
+    <div id="feuille-pages" class="feuille-pages"></div>
+    <button id="feuille-ranger" class="btn principal">📁 Ranger dans le chantier</button>
+    <div class="deux-boutons">
+      <button id="feuille-partager" class="btn secondaire">📤 Envoyer…</button>
+      <button id="feuille-copier" class="btn secondaire">📋 Copier le métré</button>
+    </div>
+  </section>
+
+  <!-- ===================== RECHERCHE ===================== -->
+  <section id="ecran-recherche" class="ecran cache" data-onglet="accueil">
+    <div class="recherche-haut">
+      <input id="recherche-texte" type="search" placeholder="Chantier, client, ville, document…" autocomplete="off" autocorrect="off" enterkeyhint="search">
+      <button id="recherche-fermer" class="lien">Fermer</button>
+    </div>
+    <div id="recherche-resultats"></div>
   </section>
 
   <!-- ===================== IMPORT DE LA GALERIE ===================== -->
@@ -337,8 +488,7 @@
         <span class="nav-mois"><button id="recap-avant" class="lien" aria-label="Mois précédent">‹</button><span id="recap-mois"></span><button id="recap-apres" class="lien" aria-label="Mois suivant">›</button></span>
       </div>
       <ul id="recap-liste" class="resultats"></ul>
-      <button id="btn-envoyer-recap" class="btn principal btn-c2c"><img src="logo-c2c.png" alt="" width="28" height="28">Envoyer le récap à Gurvan</button>
-      <button id="btn-copier-recap" class="lien recap-copier">📋 Copier le texte du récap</button>
+      <button id="btn-copier-recap" class="btn secondaire">📋 Copier le récap pour Nelly</button>
     </section>
     <button id="btn-equipe" class="btn secondaire">👷 Équipe et coûts horaires</button>
   </section>
@@ -347,7 +497,7 @@
   <section id="ecran-equipe" class="ecran cache" data-onglet="plus">
     <button class="retour" id="equipe-retour">‹ Heures</button>
     <header class="titre-page compact"><h1>Équipe</h1>
-      <p class="discret">Coût horaire chargé de chacun (salaire + charges, Gurvan chez C2C peut te le donner). Il sert à calculer la rentabilité.</p></header>
+      <p class="discret">Coût horaire chargé de chacun (salaire + charges, Nelly peut te le donner). Il sert à calculer la rentabilité.</p></header>
     <div id="equipe-liste"></div>
     <button id="btn-ajouter-compagnon" class="btn secondaire">＋ Ajouter quelqu'un</button>
     <button id="btn-enregistrer-equipe" class="btn principal">Enregistrer</button>
@@ -373,12 +523,6 @@
     <button class="retour" data-retour>‹ Retour</button>
     <header class="titre-page compact"><h1>Calculs</h1><p class="discret">Marche sans réseau.</p></header>
 
-    <a class="carte carte-bouton lien-outil" href="aretier.html">
-      <span class="carte-bouton-ico tuile t-or">📐</span>
-      <span class="carte-bouton-texte"><strong>Arêtier &amp; noue</strong><small>Délardement, longueur, empannons, pied sur sablière et réglages de la DWS780</small></span>
-      <span class="chevron">›</span>
-    </a>
-
     <section class="carte">
       <h2>Pente</h2>
       <div class="deux-champs">
@@ -396,7 +540,6 @@
         <div class="champ"><label for="calc-long">Long. faîtage (m)</label><input id="calc-long" type="text" inputmode="decimal" placeholder="ex. 12"></div>
       </div>
       <ul id="calc-resultats" class="resultats"></ul>
-      <button id="btn-garder-calcul" class="btn secondaire">📌 Garder ce calcul dans un chantier</button>
     </section>
   </section>
 
@@ -523,6 +666,9 @@
   <input id="photo-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="galerie-input" class="cache" type="file" accept="image/*,application/pdf" multiple>
   <input id="import-input" class="cache" type="file" accept="image/*" multiple>
+  <input id="releve-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="releve-galerie-input" class="cache" type="file" accept="image/*">
+  <input id="gabarit-photo-input" class="cache" type="file" accept="image/*">
 
   <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
   <div id="confettis" class="confettis" aria-hidden="true"></div>
