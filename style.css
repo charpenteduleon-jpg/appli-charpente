@@ -840,3 +840,29 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 #zone-champs input, #zone-champs select { padding: 9px 10px; }
 .resultats li.zone { color: #c0611d; font-weight: 700; }
 .resultats li b.discret { color: var(--texte-doux); font-weight: 500; }
+/* 1.15 : grand écran (PC, iPad à l'horizontale). L'iPhone ne change pas. */
+@media (min-width: 900px) {
+  .ecran { max-width: 820px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+  .barre-onglets { left: max(12px, calc(50% - 300px)); right: max(12px, calc(50% - 300px)); }
+  .pied-fixe { padding-left: max(16px, calc(50% - 394px)); padding-right: max(16px, calc(50% - 394px)); }
+  .releve-scene { margin-left: 0; margin-right: 0; border-radius: var(--rayon); overflow: hidden; }
+}
+@media (min-width: 1100px) {
+  /* Relevé sur deux colonnes : la photo ou le plan à gauche (reste visible), mesures et quantités à droite. */
+  #ecran-releve, #ecran-feuille { max-width: 1500px; }
+  #releve-travail:not(.cache) { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(380px, 1fr); gap: 0 24px; align-items: start; }
+  #releve-travail > * { grid-column: 2; }
+  #releve-travail > #releve-zone-saisie, #releve-travail > #releve-zone-photo { grid-column: 1; grid-row: 1 / span 20; position: sticky; top: 8px; }
+  #releve-zone-saisie .carte { margin-top: 12px; }
+  #releve-canvas { max-height: 78vh; }
+  #ecran-releve .pied-fixe { padding-left: max(16px, calc(50% - 734px)); padding-right: max(16px, calc(50% - 734px)); }
+  #ecran-feuille #feuille-pages { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  #ecran-feuille #feuille-pages img { width: 100%; }
+}
+.releves-fiche h2 { display: flex; justify-content: space-between; align-items: center; }
+.releves-fiche .fichier { display: flex; gap: 10px; align-items: center; width: 100%; padding: 10px 0; border: none; border-top: 1px solid var(--bord); background: none; color: var(--texte); font-size: 15px; text-align: left; }
+.releves-fiche h2 + .fichier { border-top: none; }
+.releves-fiche .fichier-texte { display: flex; flex-direction: column; min-width: 0; }
+.releves-fiche .fichier-texte span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.releves-fiche .fichier-texte small { color: var(--texte-doux); font-size: 12px; margin-top: 2px; }
+.releves-fiche .ouvrir { margin-left: auto; color: var(--bleu-vif); font-weight: 600; font-size: 14px; white-space: nowrap; }

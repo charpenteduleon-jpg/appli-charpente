@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.14.0';
+const VERSION = '1.15.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1406,6 +1406,17 @@ function dessinerFiche(f) {
       el('ul', { class: 'liste-simple' }, ...f.evenements.map((e) => el('li', {},
         el('div', { class: 'agenda-texte' }, el('div', {}, e.titre), el('small', {}, jourLisible(e.debut, e.journee))))))));
   }
+  // Relevés gardés en données : on les rouvre pour corriger une cote, changer le bac ou la couleur, refaire la feuille.
+  if (f.releves?.length) {
+    blocs.push(el('section', { class: 'carte rubrique releves-fiche' }, el('h2', {}, '📏 Relevés à reprendre', el('span', { class: 'nb' }, String(f.releves.length))),
+      ...f.releves.map((r) => {
+        const b = el('button', { class: 'fichier' }, el('span', {}, '📏'), el('span', { class: 'fichier-texte' },
+          el('span', {}, r.titre), el('small', {}, [new Date(r.maj).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }), r.resume].filter(Boolean).join(' · '))),
+          el('span', { class: 'ouvrir' }, 'Ouvrir ›'));
+        b.onclick = () => ouvrirReleveSauve(f.nom, r.id, b);
+        return b;
+      })));
+  }
   const icones = { 'Plans': '📐', 'Devis & contrat': '📝', 'Achats': '🧾', 'Photos': '📷', 'Divers': '📎' };
   const ordre = ['Photos', 'Plans', 'Devis & contrat', 'Achats', 'Divers'];
   for (const titre of ordre) {
@@ -1443,6 +1454,23 @@ function dessinerFiche(f) {
   }
   blocs.push(notes);
   $('#fiche-contenu').replaceChildren(...blocs);
+}
+
+// Rouvre un relevé rangé (données gardées par le serveur) pour le retravailler ; « Ranger » le réenregistre au même endroit.
+async function ouvrirReleveSauve(chantier, id, bouton) {
+  const enCours = R.actif && (R.elements.length || Object.values(R.gabarit.saisis || {}).some(Boolean));
+  if (enCours && R.id !== id && !confirm('Un autre relevé est en cours. L\'ouvrir quand même ? Celui en cours sera remplacé.')) return;
+  const texte = bouton?.querySelector('.ouvrir');
+  if (texte) texte.textContent = 'Ouverture…';
+  try {
+    const r = await appelServeur({ action: 'lireReleve', chantier, id }, 60000);
+    remplirSelectChantiers($('#releve-chantier'), chantier, '— Choisir le chantier —');
+    afficher('releve');
+    await demarrerReleve({ ...r.releve, id, chantier, depuisRdv: false, photoEnvoyee: true });
+    toast('Relevé rouvert : corrige ce qu\'il faut, puis refais la feuille ✅', 'ok');
+  } catch (e) {
+    toast(`Relevé impossible à ouvrir : ${e.message}`, 'erreur');
+  } finally { if (texte) texte.textContent = 'Ouvrir ›'; }
 }
 
 // Un document du dossier chantier : nom sans la date du mail (affichée à part), ouvert dans Drive.
@@ -2282,6 +2310,7 @@ async function demarrerReleve(b) {
   R.coteVisee = null;
   R.photoEnvoyee = !!b.photoEnvoyee;
   R.depuisRdv = !!b.depuisRdv;
+  R.id = b.id || nouvelId();
   R.zone = { ...zoneVide(), ...(b.zone || {}) };
   remplirCarteZone();
   $('#releve-facade').value = b.facade || '';
@@ -2325,14 +2354,17 @@ function brouillonEffacer() {
   try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
   return fileAction('readwrite', (s) => s.delete(CLE_BROUILLON), MAGASIN_CLES).catch(() => {});
 }
+// Tout le relevé (de quoi le rouvrir tel quel) : gardé dans l'iPhone pendant le travail, et dans le dossier du chantier
+// quand on range la feuille, pour le retravailler sur le PC.
+const etatReleve = () => ({ id: R.id, mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit,
+  analyse: R.analyse, chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
+  photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value, zone: R.zone });
+
 async function sauverBrouillonMaintenant() {
   clearTimeout(R.minuteur);
   if (!R.actif || !securite.cleDonnees) return;
   try {
-    const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
-      chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
-      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value, zone: R.zone };
-    await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(b)));
+    await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(etatReleve())));
     try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
   } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
 }
@@ -3356,9 +3388,9 @@ function dessinerPlan(ctx, zone, s, f = 1) {
     const texte = `Zone de travaux · ${fmtM(r.xb - r.xa)} m · ${fmtNb(aireZone, 2)} m²`;
     ctx.font = `800 ${26 * f}px -apple-system, "Segoe UI", sans-serif`;
     const l = ctx.measureText(texte).width + 24 * f;
-    // Pastille juste au-dessus de la zone (dans la partie grisée), sinon juste dedans si la zone touche le haut.
+    // Pastille en haut, à l'intérieur de la zone (les cotes du bâtiment sont autour, à l'extérieur).
     const cx = Math.min(Math.max((a.x + b.x) / 2, zone.x + l / 2), zone.x + zone.w - l / 2);
-    const cy = a.y - 30 * f > zone.y + 24 * f ? a.y - 30 * f : a.y + 30 * f;
+    const cy = a.y + 30 * f;
     ctx.fillStyle = '#e8833a';
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(cx - l / 2, cy - 20 * f, l, 40 * f, 20 * f); else ctx.rect(cx - l / 2, cy - 20 * f, l, 40 * f);
@@ -3436,6 +3468,13 @@ async function rangerFeuille() {
     note: 'Relevé de mesures', rubrique: '01 Plans', prefixe: 'Releve' };
   const envois = R.feuilles.map((d, i) => ({ ...commun, page: i + 1, fichier: { mime: 'image/jpeg', data: d.split(',')[1] } }));
   envoyerPhotoReleve(); // la photo d'origine aussi, si elle n'est pas déjà partie
+  // Les données du relevé partent aussi : on pourra le rouvrir et le corriger (sur le PC par exemple).
+  const s = echelleReleve(), m = metreReleve(s);
+  const facade = $('#releve-facade').value.trim();
+  envois.push({ action: 'sauverReleve', id: R.id, chantier, date: Date.now(),
+    titre: facade || (R.mode === 'saisie' ? NOMS_GABARITS[R.gabarit.type] || 'Relevé' : 'Relevé sur photo'),
+    resume: [NOMS_OUVRAGES[R.ouvrage], m.brut ? `${fmtNb(m.net, 2)} m² nets` : '', m.zone ? 'zone de travaux' : ''].filter(Boolean).join(' · '),
+    releve: { ...etatReleve(), chantier, depuisRdv: false } });
   const { tousPartis } = await mettreEnFile(envois);
   brouillonEffacer(); // la feuille est rangée (ou dans la file d'envoi) : plus besoin de rouvrir ce relevé au démarrage
   toast(tousPartis ? `Relevé rangé dans ${chantier} ✅` : 'Pas de réseau : le relevé partira tout seul.', tousPartis ? 'ok' : '');
@@ -4490,6 +4529,14 @@ function surveillerMisesAJour() {
 
 // ===================== Branchements =====================
 document.addEventListener('DOMContentLoaded', () => {
+  // Juste après une mise à jour, l'iPhone peut garder l'ancienne page avec le nouveau code : des boutons manquent et
+  // plus rien ne répond (bug du rendez-vous le 07/11). Dans ce cas, on recharge une fois pour tout reprendre à jour.
+  const versionPage = document.querySelector('meta[name="version-appli"]')?.content;
+  if (versionPage !== VERSION) {
+    let dejaRecharge = false;
+    try { dejaRecharge = sessionStorage.getItem('recharge-version') === VERSION; sessionStorage.setItem('recharge-version', VERSION); } catch { /* rien */ }
+    if (!dejaRecharge) { location.reload(); return; }
+  }
   $('#version').textContent = `Charpente du Léon · version ${VERSION}`;
 
   // Navigation
@@ -4552,7 +4599,9 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#recherche-fermer').onclick = () => ouvrirOnglet('accueil');
 
   // Relevé de mesures
-  $('#releve-photo').onclick = () => { activerBoussole(); $('#releve-input').click(); };
+  // L'appareil photo s'ouvre d'abord ; la boussole est demandée au début du rendez-vous (sa demande d'autorisation
+  // empêchait l'appareil photo de s'ouvrir sur l'iPhone).
+  $('#releve-photo').onclick = () => { $('#releve-input').click(); activerBoussole(); };
   $('#releve-facade').oninput = () => sauverBrouillonReleve();
   $('#releve-galerie').onclick = () => $('#releve-galerie-input').click();
   for (const id of ['#releve-input', '#releve-galerie-input']) {
@@ -4622,7 +4671,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Rendez-vous client
-  $('#btn-rdv').onclick = () => demarrerRdv();
+  $('#btn-rdv').onclick = () => { activerBoussole(); demarrerRdv(); };
   $('#rdv-fermer').onclick = () => { sauverRdv(); ouvrirOnglet('accueil'); };
   for (const b of $$('#rdv-type [data-type]')) {
     b.onclick = () => { V.type = b.dataset.type; V.chantierEnvoye = false; sauverRdv(); ouvrirRdv(); };
@@ -4632,7 +4681,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) {
     $(id).oninput = (e) => { V[cle] = e.target.value; if (cle === 'nom') V.chantierEnvoye = false; sauverRdv(); majRdv(); };
   }
-  $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) { activerBoussole(); $('#rdv-photo-input').click(); } };
+  $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) { $('#rdv-photo-input').click(); activerBoussole(); } };
   $('#rdv-notes').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-input').click(); };
   $('#rdv-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, false); };
   $('#rdv-notes-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, true); };
