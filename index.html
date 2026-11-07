@@ -435,12 +435,14 @@
       </section>
       <section class="carte">
         <h2>Quantitatif</h2>
-        <div id="releve-ouvrage" class="segment">
-          <button data-ouvrage="bardage" class="active">Bardage</button>
-          <button data-ouvrage="plaques">Plaques</button>
-          <button data-ouvrage="couverture">Couverture</button>
-          <button data-ouvrage="aucun">Rien</button>
-        </div>
+        <select id="releve-ouvrage" aria-label="Type d'ouvrage">
+          <option value="bardage">Bardage bois (lames)</option>
+          <option value="bacmur">Bac acier – bardage (Murexter)</option>
+          <option value="bac">Bac acier – toiture (Coverbac)</option>
+          <option value="plaques">Plaques ondulées (fibrociment)</option>
+          <option value="couverture">Couverture ardoise / tuile</option>
+          <option value="aucun">Surfaces seulement</option>
+        </select>
         <div id="releve-params" class="deux-champs"></div>
         <ul id="releve-quantites" class="resultats"></ul>
       </section>

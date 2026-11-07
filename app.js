@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1651,9 +1651,97 @@ const OUVRAGES = {
   plaques: [['largeur', 'Largeur plaque (cm)', 93], ['longueur', 'Longueur plaque (cm)', 150],
     ['recLat', 'Recouvrement latéral (cm)', 5], ['recBout', 'Recouvrement en bout (cm)', 14],
     ['surface', 'Surface (m², 0 = toiture calculée)', 0], ['chute', 'Chute (%)', 5]],
+  // Bac acier de Jean-Phi : Coverbac 3.45R 1000 (largeur utile 1 000 mm), 0,63 mm, RAL 7016 + feutre, chez Belmet
+  // (commande atelier n° 2698036, mai 2026), plaques à longueur avec 10 cm de débord en bas de pente.
+  bac: [['couleur', 'Couleur (RAL, au choix du client)', 'RAL 7016'], ['utile', 'Largeur utile (mm)', 1000], ['debordBas', 'Débord bas de pente (cm)', 10], ['eclairantes', 'Plaques éclairantes (nombre)', 0],
+    ['cavaliers', 'Cavaliers au m²', 4.5], ['coutures', 'Vis de couture au m²', 2.2]],
+  // Bardage en bac de Jean-Phi : MUREXTER noir sablé RAL 9005 chez Belmet (chantier Mevel, juin 2026), largeur utile
+  // 1 070 mm (à faire confirmer par Belmet), plaques verticales, vis 4,8 × 35.
+  bacmur: [['couleur', 'Couleur (RAL, au choix du client)', 'RAL 9005'], ['utile', 'Largeur utile (mm)', 1070], ['marge', 'Marge sur la longueur (cm)', 5], ['eclairantes', 'Plaques éclairantes (nombre)', 0],
+    ['vis', 'Vis 4,8 × 35 au m²', 4], ['coutures', 'Vis de couture au m²', 1.5]],
   aucun: [],
 };
-const NOMS_OUVRAGES = { bardage: 'Bardage', couverture: 'Couverture', plaques: 'Plaques ondulées', aucun: 'Surfaces' };
+const NOMS_OUVRAGES = { bardage: 'Bardage bois', couverture: 'Couverture', plaques: 'Plaques ondulées', bac: 'Bac acier – toiture',
+  bacmur: 'Bac acier – bardage', aucun: 'Surfaces' };
+
+// Haut de la surface (y le plus petit, en mètres) sur une verticale x : intersection avec les bords du polygone.
+function hautSurface(pts, x) {
+  let haut = Infinity;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    if ((a.x - x) * (b.x - x) > 0 || a.x === b.x) continue;
+    const y = a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+    haut = Math.min(haut, y);
+  }
+  return haut;
+}
+
+// Calepinage du bac acier : la liste des plaques (longueurs arrondies aux 5 cm au-dessus), regroupées.
+function regrouperPlaques(longueurs) {
+  const n = {};
+  for (const l of longueurs) { const k = (Math.ceil(l * 20 - 1e-6) / 20).toFixed(2); n[k] = (n[k] || 0) + 1; }
+  return Object.entries(n).sort((a, b) => b[0] - a[0]).map(([l, c]) => `${c} × ${l.replace('.', ',')} m`).join(' · ');
+}
+
+function calepinageBac(p, usage) {
+  const u = (Number(p.utile) || 1000) / 1000, deb = (Number(p.debordBas) || 0) / 100;
+  const lignes = [];
+  let surface = 0, nb = 0;
+  if (usage === 'toiture') {
+    if (!(R.mode === 'saisie' && R.pans?.length)) {
+      return [['Calepinage de toiture', 'tape la longueur du bâtiment (relevé « J\'ai mes mesures »)']];
+    }
+    // Toiture : un rang de plaques par pan, chaque plaque fait le rampant + le débord bas.
+    let closoir = 0, rives = 0;
+    for (const pan of R.pans) {
+      const n = Math.ceil(pan.long / u - 1e-6), l = pan.r + deb;
+      lignes.push([`${pan.nom} : ${n} plaques`, regrouperPlaques(new Array(n).fill(l))]);
+      surface += n * u * l; nb += n; closoir += pan.long; rives += 2 * l;
+    }
+    lignes.push(['Closoir mousse bas de pente', `${fmtM(closoir)} ml`], ['Bandes de rive', `${fmtM(rives)} ml (${Math.ceil(rives / 3)} × 3 m)`]);
+    if (R.pans.length === 2) lignes.push(['Faîtière', `${fmtM(R.pans[0].long)} ml (${Math.ceil(R.pans[0].long / 3)} × 3 m)`]);
+  } else {
+    // Façade (bardage en bac) : des plaques verticales de gauche à droite ; au-dessus d'une porte ou d'un portail
+    // (ouverture qui part du sol), la plaque s'arrête au linteau.
+    const s = echelleReleve();
+    const surf = R.elements.find((e) => e.type === 'surface');
+    if (!s || !surf) return [];
+    const pts = surf.pts.map((q) => versM(q, s));
+    const x0 = Math.min(...pts.map((q) => q.x)), x1 = Math.max(...pts.map((q) => q.x)), sol = Math.max(...pts.map((q) => q.y));
+    const portes = R.elements.filter((e) => e.type === 'ouverture').map((e) => ({ ...etenduePied(e, s), h: e.projetH > 0 ? e.projetH : etenduePied(e, s).sol - Math.min(...e.pts.map((q) => versM(q, s).y)) }))
+      .filter((o) => Math.abs(o.sol - sol) < 0.25);
+    const longueurs = [];
+    for (let xa = x0; xa < x1 - 0.02; xa += u) {
+      const xb = Math.min(xa + u, x1);
+      const xs = [xa, xb, ...pts.filter((q) => q.x > xa && q.x < xb).map((q) => q.x)];
+      const haut = Math.min(...xs.map((x) => hautSurface(pts, Math.min(Math.max(x, x0 + 1e-6), x1 - 1e-6))));
+      let l = sol - haut;
+      const porte = portes.find((o) => o.x0 <= xa + 0.05 && o.x1 >= xb - 0.05);
+      if (porte) l -= porte.h;
+      if (l > 0.05) longueurs.push(l + (Number(p.marge) || 0) / 100);
+    }
+    const angles = (sol - hautSurface(pts, x0 + 1e-6)) + (sol - hautSurface(pts, x1 - 1e-6));
+    nb = longueurs.length;
+    surface = longueurs.reduce((t, l) => t + l * u, 0);
+    lignes.push([`Façade : ${nb} plaques`, regrouperPlaques(longueurs)]);
+    lignes.push(['Bavette / closoir bas', `${fmtM(x1 - x0)} ml`], ['Angles (2 côtés)', `${fmtM(angles)} ml`]);
+    if (Number(p.marge)) lignes.push(['Marge comprise dans les longueurs', `${p.marge} cm par plaque`]);
+  }
+  const ecl = Math.min(Number(p.eclairantes) || 0, nb);
+  if (ecl) lignes.push(['Dont plaques éclairantes', `${ecl}`]);
+  const dizaine = (x) => fmtNb(Math.ceil(x / 10) * 10);
+  if (usage === 'toiture') {
+    lignes.unshift(['Bac acier', `Coverbac 3.45R · utile ${fmtNb(u * 1000)} mm · 0,63 mm · ${p.couleur || 'couleur à choisir'} + feutre (Belmet)`]);
+    lignes.push(['Surface de bac', `${fmtNb(surface, 2)} m²`]);
+    lignes.push(['Cavaliers 3 en 1', `≈ ${dizaine(surface * (Number(p.cavaliers) || 4.5))}`]);
+  } else {
+    lignes.unshift(['Bac acier', `MUREXTER · utile ${fmtNb(u * 1000)} mm · ${p.couleur || 'couleur à choisir'} (Belmet, largeur à confirmer)`]);
+    lignes.push(['Surface de bac', `${fmtNb(surface, 2)} m²`]);
+    lignes.push(['Vis 4,8 × 35', `≈ ${dizaine(surface * (Number(p.vis) || 4))}`]);
+  }
+  lignes.push(['Vis de couture', `≈ ${dizaine(surface * (Number(p.coutures) || 2))}`]);
+  return lignes;
+}
 // mode « saisie » : formes et mesures tapées, l'appli calcule le reste ; mode « photo » : on mesure sur la photo.
 const R = { mode: 'saisie', photo: '', img: null, elements: [], outil: 'cote', enCours: null, glisse: null, loupe: null, historique: [],
   ouvrage: 'bardage', params: {}, image: 0, feuilles: [], minuteur: null,
@@ -1823,6 +1911,8 @@ function quantitesReleve(m) {
   const p = { ...Object.fromEntries((OUVRAGES[R.ouvrage] || []).map(([k, , v]) => [k, v])), ...(R.params[R.ouvrage] || {}) };
   const f = 1 + (Number(p.chute) || 0) / 100;
   const lignes = [];
+  if (R.ouvrage === 'bac') return calepinageBac(p, 'toiture');
+  if (R.ouvrage === 'bacmur') return m.brut ? calepinageBac(p, 'facade') : [];
   // Bardage : la surface nette du mur. Couverture et plaques : la surface tapée, sinon la toiture calculée.
   const net = R.ouvrage === 'bardage' || R.ouvrage === 'aucun' ? m.net : Number(p.surface) > 0 ? Number(p.surface) : m.toiture || m.net;
   if (net && R.ouvrage !== 'bardage' && R.ouvrage !== 'aucun') lignes.push(['Surface prise en compte', `${fmtNb(net, 2)} m²`]);
@@ -2127,7 +2217,7 @@ async function demarrerReleve(b) {
   $('#releve-zone-photo').classList.toggle('cache', R.mode !== 'photo');
   $('#releve-zone-saisie').classList.toggle('cache', R.mode !== 'saisie');
   $('#releve-titre').textContent = R.mode === 'saisie' ? 'Relevé' : 'Relevé sur photo';
-  for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x.dataset.ouvrage === R.ouvrage);
+  $('#releve-ouvrage').value = R.ouvrage;
   dessinerParamsReleve();
   if (R.mode === 'saisie') {
     choisirGabarit(R.gabarit.type, false);
@@ -2355,6 +2445,7 @@ function construireSaisie(sol) {
       if (v.long) {
         lin.push(['Faîtage (longueur)', `${fmtM(v.long)} ml`], ['Gouttières (2 côtés)', `${fmtM(2 * v.long)} ml`]);
         R.toiture = rives * v.long;
+        R.pans = [{ nom: 'Pan gauche', r: v.rG + deb, long: v.long }, { nom: 'Pan droit', r: v.rD + deb, long: v.long }];
       }
     }
   } else if (g.type === 'appentis') {
@@ -2372,7 +2463,7 @@ function construireSaisie(sol) {
     if (!manque.length) {
       const deb = v.debord || 0;
       lin.push(['Pente', afficherChamp('p', v.p)], ['Rive', `${fmtM(v.r + deb)} ml`]);
-      if (v.long) { lin.push(['Gouttière', `${fmtM(v.long)} ml`]); R.toiture = (v.r + deb) * v.long; }
+      if (v.long) { lin.push(['Gouttière', `${fmtM(v.long)} ml`]); R.toiture = (v.r + deb) * v.long; R.pans = [{ nom: 'Pan', r: v.r + deb, long: v.long }]; }
     }
   } else if (g.type === 'mur') {
     req('L', 'la longueur'); req('H', 'la hauteur');
@@ -2389,6 +2480,7 @@ function construireSaisie(sol) {
     cote('Longueur', [0, -0.7], [d.long, -0.7], 'long');
     cote('Rampant', [-0.7, 0], [-0.7, d.r], 'r');
     if (!manque.length && v.p) lin.push(['Pente', afficherChamp('p', v.p)]);
+    if (!manque.length) R.pans = [{ nom: 'Pan', r: v.r, long: v.long }];
   }
 
   // Ouvertures : largeur × hauteur, ou surface seule ; à gauche, à la distance tapée, sinon centrée.
@@ -2434,7 +2526,7 @@ function choisirGabarit(type, maj = true) {
   for (const b of $$('#gabarit-types [data-gabarit]')) b.classList.toggle('active', b.dataset.gabarit === type);
   // Ouvrage proposé : toiture → plaques/couverture ; murs → bardage.
   if (maj && type === 'pan' && R.ouvrage === 'bardage') R.ouvrage = 'plaques';
-  for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x.dataset.ouvrage === R.ouvrage);
+  $('#releve-ouvrage').value = R.ouvrage;
   dessinerParamsReleve();
   dessinerChampsSaisie();
   dessinerOuvertures();
@@ -2479,6 +2571,7 @@ function majPhotoJointe() {
 
 function majSaisie(sauver = true) {
   R.toiture = 0;
+  R.pans = [];
   const sol = resoudreGabarit();
   construireSaisie(sol);
   const s = R.echelleFixe;
@@ -2880,10 +2973,12 @@ function dessinerQuantites(m, vide) {
 function dessinerParamsReleve() {
   const vals = R.params[R.ouvrage] || {};
   $('#releve-params').replaceChildren(...(OUVRAGES[R.ouvrage] || []).map(([cle, libelle, defaut]) => {
-    const input = el('input', { type: 'text', inputmode: 'decimal', value: String(vals[cle] ?? defaut).replace('.', ',') });
+    // La couleur est du texte (« 7016 », « gris anthracite »…), au choix du client ; le reste, des nombres.
+    const texte = typeof defaut === 'string';
+    const input = el('input', { type: 'text', inputmode: texte ? 'text' : 'decimal', value: String(vals[cle] ?? defaut).replace('.', texte ? '.' : ',') });
     input.oninput = () => {
-      const v = Number(input.value.replace(',', '.'));
-      if (!Number.isFinite(v)) return;
+      const v = texte ? input.value.trim() : Number(input.value.replace(',', '.'));
+      if (!texte && !Number.isFinite(v)) return;
       R.params[R.ouvrage] = { ...(R.params[R.ouvrage] || {}), [cle]: v };
       majReleve();
     };
@@ -4302,10 +4397,9 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const b of $$('#releve-outils [data-outil]')) b.onclick = () => choisirOutilReleve(b.dataset.outil);
   $('#releve-defaire').onclick = defaireReleve;
   $('#releve-fermer-surface').onclick = fermerSurface;
-  for (const b of $$('#releve-ouvrage [data-ouvrage]')) {
-    b.onclick = () => {
-      R.ouvrage = b.dataset.ouvrage;
-      for (const x of $$('#releve-ouvrage [data-ouvrage]')) x.classList.toggle('active', x === b);
+  {
+    $('#releve-ouvrage').onchange = (ev) => {
+      R.ouvrage = ev.target.value;
       dessinerParamsReleve();
       majReleve();
     };
