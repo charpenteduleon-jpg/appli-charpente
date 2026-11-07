@@ -1,6 +1,6 @@
 // Service worker : garde l'appli disponible même sans réseau.
 // Changer CACHE à chaque nouvelle version pour que l'iPhone récupère les fichiers à jour.
-const CACHE = 'charpente-v1.16.0';
+const CACHE = 'charpente-v1.16.1';
 const FICHIERS = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icone.svg', 'icone-180.png', 'icone-512.png',
   'logo.svg', 'logo-blanc.svg'];
 
@@ -20,6 +20,8 @@ self.addEventListener('fetch', (ev) => {
   const url = new URL(ev.request.url);
   // Les appels au serveur Google ne passent jamais par le cache.
   if (ev.request.method !== 'GET' || url.origin !== self.location.origin) return;
+  // Vérification de la version publiée : toujours en direct, jamais gardée en cache.
+  if (url.searchParams.has('maj')) return;
   // Réseau d'abord (pour avoir la dernière version), cache si pas de réseau. « no-cache » : le navigateur revérifie
   // chaque fichier auprès de GitHub au lieu de reprendre une copie de moins de 10 minutes (sinon la page et le code
   // pouvaient être de deux versions différentes juste après une mise à jour).

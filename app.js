@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.16.0';
+const VERSION = '1.16.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -135,6 +135,7 @@ function afficher(nom) {
   if (nom !== ecranCourant) ecranPrecedent = ecranCourant;
   ecranCourant = nom;
   for (const e of $$('.ecran')) e.classList.toggle('cache', e.id !== `ecran-${nom}`);
+  if (versionEnAttente) setTimeout(appliquerMiseAJourSiPossible, 300);
   const ecran = $(`#ecran-${nom}`);
   const onglet = ecran?.dataset.onglet;
   if (onglet) {
@@ -4535,6 +4536,39 @@ function surveillerMisesAJour() {
   });
 }
 
+// L'iPhone ne ferme presque jamais vraiment l'appli : il la remet sur la dernière page vue, sans rien relire, donc une
+// nouvelle version n'était jamais prise (07/11). À chaque retour dans l'appli, on regarde la version publiée ; si elle
+// est plus récente, on recharge tout de suite quand on est sur un écran de consultation, sinon dès qu'on y revient
+// (jamais au milieu d'un relevé, d'un rendez-vous ou d'un document en cours).
+const ECRANS_SANS_SAISIE = ['accueil', 'chantiers', 'fiche', 'taches', 'plus', 'recherche', 'point', 'rentabilite', 'calculs', 'equipe'];
+let majVerifieeA = 0;
+let versionEnAttente = null;
+function versionPlusRecente(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0); }
+  return false;
+}
+async function verifierNouvelleVersion() {
+  if (!navigator.onLine || Date.now() - majVerifieeA < 60000) return;
+  majVerifieeA = Date.now();
+  try {
+    const rep = await fetch(`index.html?maj=${Date.now()}`, { cache: 'no-store' });
+    if (!rep.ok) return;
+    const m = (await rep.text()).match(/name="version-appli" content="([^"]+)"/);
+    if (m && versionPlusRecente(m[1], VERSION)) { versionEnAttente = m[1]; appliquerMiseAJourSiPossible(); }
+  } catch { /* hors ligne : on verra au prochain retour */ }
+}
+function appliquerMiseAJourSiPossible() {
+  if (!versionEnAttente || !demarree || securite.verrouillee || document.hidden) return;
+  if (!ECRANS_SANS_SAISIE.includes(ecranCourant) || R.actif || envoiEnCours) return;
+  const v = versionEnAttente;
+  versionEnAttente = null;
+  try { if (sessionStorage.getItem('maj-tentee') === v) return; sessionStorage.setItem('maj-tentee', v); } catch { /* rien */ }
+  toast(`Mise à jour de l'appli (version ${v})…`, 'ok');
+  sauverCoffre();
+  navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {}).finally(() => setTimeout(() => location.reload(), 800));
+}
+
 // ===================== Branchements =====================
 document.addEventListener('DOMContentLoaded', () => {
   // Juste après une mise à jour, l'iPhone peut garder l'ancienne page avec le nouveau code : des boutons manquent et
@@ -4820,6 +4854,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.remove('masque');
     if (faceIdActif() && demarree && !securite.verrouillee && Date.now() - securite.cacheDepuis > DELAI_VERROU_MS) { verrouiller(); return; }
     if (!demarree || securite.verrouillee) return;
+    verifierNouvelleVersion();
     viderFile();
     // Économie de batterie : l'accueil ne relit le serveur que si la dernière lecture date de plus de 5 minutes.
     if (ecranCourant === 'accueil' && Date.now() - accueilLu > 5 * 60000) rafraichirAccueil();
@@ -4845,4 +4880,5 @@ async function demarrer() {
   else { ouvrirOnglet('accueil'); rouvrirReleveRecent().catch(() => {}); }
   await appairageAutomatique();
   viderFile();
+  verifierNouvelleVersion();
 }
