@@ -793,3 +793,18 @@ body:has(#ecran-annoter:not(.cache)) { background: #0b0b0d; }
 .photo-vignette img { display: block; width: 100%; max-height: 220px; object-fit: cover; border-radius: var(--rayon); }
 .photo-vignette .suppr { position: absolute; right: 8px; top: 8px; width: 30px; height: 30px; border-radius: 50%; border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 18px; }
 #releve-aide strong, #gabarit-aide strong { display: block; margin-bottom: 4px; }
+
+/* Relevé : cotes proposées par Claude (A, B, C…) */
+.releve-aide.analyse { background: var(--bleu-clair); animation: pulse-analyse 1.6s ease-in-out infinite; }
+@keyframes pulse-analyse { 50% { opacity: .65; } }
+.cotes-a-prendre .carte-entete { margin-bottom: 4px; }
+.cote-ligne { display: grid; grid-template-columns: 40px 1fr 110px; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--bord); }
+.cote-ligne .lettre { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--bleu); color: #fff; font-weight: 800; font-size: 17px; }
+.cote-ligne.remplie .lettre { background: var(--or); }
+.cote-texte strong { display: block; font-size: 15px; line-height: 1.2; }
+.cote-texte small { display: block; color: var(--texte-doux); font-size: 12.5px; line-height: 1.3; margin-top: 2px; }
+.cote-saisie input { width: 100%; font-size: 18px; font-weight: 700; text-align: right; padding: 10px; }
+.cote-saisie input:focus { outline: 3px solid #30d158; }
+.cote-saisie input.erreur { outline: 2px solid var(--rouge); }
+.cote-saisie .calcul { display: block; font-size: 11px; color: var(--texte-doux); text-align: right; margin-top: 3px; line-height: 1.2; }
+#releve-dictee { margin-top: 10px; }

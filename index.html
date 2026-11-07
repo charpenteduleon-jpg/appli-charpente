@@ -300,14 +300,14 @@
       <button id="releve-nouveau" class="lien">Nouveau</button>
     </div>
     <div id="releve-depart" class="releve-depart">
-      <button id="releve-saisie" class="choix-releve recommande">
-        <span class="tuile t-or">📐</span>
-        <span><strong>J'ai mes mesures</strong><small>Choisis la forme, tape ce que tu as mesuré : l'appli dessine et calcule ce qui manque (rampants, pentes, surfaces, quantités).</small></span>
+      <button id="releve-photo" class="choix-releve recommande">
+        <span class="tuile t-bleu">📸</span>
+        <span><strong>Photo : Claude propose les cotes</strong><small>Photo bien de face (objectif 1×). Claude trouve le pignon, les portes et les fenêtres, et te dit quelles cotes prendre (A, B, C…). Tu les prends au laser ou tu les dictes : tout le reste se calcule.</small></span>
         <i>›</i>
       </button>
-      <button id="releve-photo" class="choix-releve">
-        <span class="tuile t-bleu">📷</span>
-        <span><strong>Mesurer sur une photo</strong><small>Photo bien de face (objectif 1×) et une mesure prise sur place : on mesure le reste sur la photo.</small></span>
+      <button id="releve-saisie" class="choix-releve">
+        <span class="tuile t-or">📐</span>
+        <span><strong>J'ai mes mesures</strong><small>Sans photo : choisis la forme, tape ce que tu as mesuré, l'appli dessine et calcule ce qui manque.</small></span>
         <i>›</i>
       </button>
       <button id="releve-galerie" class="lien">ou choisir une photo dans la galerie</button>
@@ -343,6 +343,16 @@
         <canvas id="releve-loupe" class="loupe cache" width="240" height="240"></canvas>
       </div>
       <p id="releve-aide" class="releve-aide"></p>
+      <section id="releve-cotes" class="carte cotes-a-prendre cache">
+        <div class="carte-entete"><h2>Mesures à prendre</h2><button id="releve-reanalyser" class="lien">Refaire l'analyse</button></div>
+        <p id="releve-cotes-analyse" class="discret petit-texte"></p>
+        <div id="releve-cotes-liste"></div>
+        <textarea id="releve-dictee" rows="2" placeholder="Ou dicte : « A douze mètres trente, B deux quinze… »"></textarea>
+        <div class="deux-boutons">
+          <button id="releve-micro" class="btn secondaire">🎤 Dicter</button>
+          <button id="releve-lire" class="btn secondaire">Lire la dictée</button>
+        </div>
+      </section>
       <div id="releve-selection" class="releve-selection cache"></div>
       <div id="releve-outils" class="releve-outils">
         <button data-outil="cote"><span>↔</span>Cote</button>

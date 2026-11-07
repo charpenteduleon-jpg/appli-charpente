@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -364,12 +364,12 @@ function majAlerteSecurite(alerte) {
 }
 
 // ===================== Serveur Google =====================
-async function appelServeur(donnees) {
+async function appelServeur(donnees, delai = DELAI_SERVEUR_MS) {
   const appairage = donnees.action === 'appairer';
   if (!appairage && !reglages.ok()) throw new Error('Appareil pas encore appairé (Plus › Réglages)');
   const corps = appairage ? JSON.stringify(donnees) : await signer(donnees);
   const controle = new AbortController();
-  const minuteur = setTimeout(() => controle.abort(), DELAI_SERVEUR_MS);
+  const minuteur = setTimeout(() => controle.abort(), delai);
   try {
     const reponse = await fetch(reglages.url, {
       method: 'POST',
@@ -1790,7 +1790,188 @@ async function photoReleve(fichier, mode = 'photo') {
       return;
     }
     await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value });
+    analyserPhotoReleve();
   } catch (e) { toast(e.message, 'erreur'); }
+}
+
+// ---------- Claude regarde la photo et propose les cotes à prendre (A, B, C…) ----------
+async function analyserPhotoReleve() {
+  if (!R.img) return;
+  const aide = $('#releve-aide');
+  if (!navigator.onLine || !reglages.ok()) {
+    aide.className = 'releve-aide';
+    aide.textContent = 'Pas de réseau : Claude ne peut pas regarder la photo. Trace les cotes à la main (outil Cote).';
+    return;
+  }
+  R.analyseEnCours = true;
+  aide.className = 'releve-aide analyse';
+  aide.textContent = '🔍 Claude regarde ta photo et prépare les cotes à prendre… (10 à 30 secondes)';
+  try {
+    // Image réduite (1 568 points au plus) : c'est la taille que Claude regarde vraiment.
+    const k = Math.min(1, 1568 / Math.max(R.img.width, R.img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(R.img.width * k);
+    c.height = Math.round(R.img.height * k);
+    c.getContext('2d').drawImage(R.img, 0, 0, c.width, c.height);
+    const res = await appelServeur({ action: 'analyserPhoto', image: c.toDataURL('image/jpeg', 0.82).split(',')[1],
+      largeur: c.width, hauteur: c.height, indice: $('#releve-chantier').value || '' }, 120000);
+    R.analyseEnCours = false;
+    appliquerAnalyse(res.analyse, 1 / k);
+  } catch (e) {
+    aide.className = 'releve-aide';
+    aide.textContent = `Analyse impossible (${e.message}). Tu peux tracer les cotes à la main avec l'outil Cote.`;
+  } finally {
+    R.analyseEnCours = false;
+  }
+}
+
+function appliquerAnalyse(a, f = 1) {
+  const P = (p) => ({ x: Math.round(p.x * f), y: Math.round(p.y * f) });
+  sauverHistorique();
+  const els = [];
+  const nomForme = { pignon: 'Pignon', appentis: 'Appentis', mur: 'Mur', 'pan de toit': 'Pan de toit' }[a.forme] || 'Surface';
+  if (a.contour?.length >= 3) els.push({ type: 'surface', nom: nomForme, pts: a.contour.map(P) });
+  for (const o of a.ouvertures || []) if (o.contour?.length >= 3) els.push({ type: 'ouverture', nom: o.nom, pts: o.contour.map(P) });
+  for (const c of a.cotes || []) {
+    els.push({ type: 'cote', lettre: String(c.lettre).toUpperCase().slice(0, 2), nom: c.nom, consigne: c.consigne, sens: c.sens,
+      a: P(c.a), b: P(c.b), valeur: 0, court: true });
+  }
+  R.elements = els;
+  R.analyse = { forme: a.forme, description: a.description, remarques: a.remarques };
+  choisirOutilReleve('modifier');
+  redessinerReleve();
+  dessinerPanneauCotes();
+  majReleve();
+  setTimeout(() => $('#releve-cotes-liste input')?.focus(), 400);
+}
+
+// Liste A, B, C… : on touche une case, puis on vise au laser (mode clavier) ou on tape ; « Entrée » passe à la suivante.
+function dessinerPanneauCotes() {
+  const cotes = R.elements.filter((e) => e.type === 'cote' && e.lettre);
+  $('#releve-cotes').classList.toggle('cache', !cotes.length);
+  if (!cotes.length) return;
+  $('#releve-cotes-analyse').textContent = [R.analyse?.description, R.analyse?.remarques].filter(Boolean).join(' ');
+  $('#releve-cotes-liste').replaceChildren(...cotes.map((e, i) => {
+    const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', enterkeyhint: i < cotes.length - 1 ? 'next' : 'done',
+      value: e.valeur ? String(e.valeur).replace('.', ',') : '', 'aria-label': `Mesure ${e.lettre}` });
+    let minuteur = null;
+    input.oninput = () => {
+      clearTimeout(minuteur);
+      minuteur = setTimeout(() => {
+        const v = lireMesure(input.value);
+        e.valeur = v && v > 0 ? v : 0;
+        input.classList.toggle('erreur', v === null);
+        redessinerReleve();
+        majReleve();
+      }, 150);
+    };
+    input.onkeydown = (ev) => {
+      if (ev.key !== 'Enter' && ev.key !== 'Tab') return;
+      ev.preventDefault();
+      input.oninput();
+      const suivants = $$('#releve-cotes-liste input');
+      const suivant = suivants[suivants.indexOf(input) + 1];
+      if (suivant) suivant.focus(); else input.blur();
+    };
+    input.onfocus = () => { R.coteVisee = e; redessinerReleve(); };
+    return el('div', { class: 'cote-ligne' },
+      el('span', { class: 'lettre' }, e.lettre),
+      el('div', { class: 'cote-texte' }, el('strong', {}, e.nom), el('small', {}, e.consigne || '')),
+      el('div', { class: 'cote-saisie' }, input, el('small', { class: 'calcul' }, '')));
+  }));
+}
+
+function majPanneauCotes(s) {
+  const cotes = R.elements.filter((e) => e.type === 'cote' && e.lettre);
+  $$('#releve-cotes-liste .cote-ligne').forEach((ligne, i) => {
+    const e = cotes[i];
+    if (!e) return;
+    const petit = ligne.querySelector('.calcul');
+    petit.textContent = !e.valeur && s ? `≈ ${fmtM(longueurM(e.a, e.b, s))} d'après la photo` : '';
+    ligne.classList.toggle('remplie', e.valeur > 0);
+  });
+}
+
+// Dictée : « A douze trente, B deux quinze… ». Les formes simples sont lues sur le téléphone, le reste par Claude.
+function lireDicteeLocale(texte, lettres) {
+  const t = ` ${String(texte).toLowerCase().replace(/virgule/g, ',').replace(/(\d)\s*,\s*(\d)/g, '$1,$2').replace(/m[eè]tres?/g, ' m ')} `;
+  const trouve = {};
+  const re = /[\s,;.:]([a-h])\s*[:=]?\s*(\d+)(?:[.,](\d+)|\s*m\s*(\d{1,2})(?!\d))?/g;
+  let m;
+  while ((m = re.exec(t))) {
+    const lettre = m[1].toUpperCase();
+    if (!lettres.includes(lettre)) continue;
+    let v = null;
+    if (m[3]) v = Number(`${m[2]}.${m[3]}`);
+    else if (m[4]) v = Number(m[2]) + Number(m[4].padEnd(2, '0')) / 100;
+    if (v != null && v > 0 && v < 200) trouve[lettre] = v;
+  }
+  return trouve;
+}
+
+async function lireDictee() {
+  const texte = $('#releve-dictee').value.trim();
+  if (!texte) { toast('Dicte d\'abord tes mesures.', 'erreur'); return; }
+  const cotes = R.elements.filter((e) => e.type === 'cote' && e.lettre);
+  const lettres = cotes.map((e) => e.lettre);
+  let trouve = lireDicteeLocale(texte, lettres);
+  let doute = '';
+  if (Object.keys(trouve).length < lettres.length && navigator.onLine && reglages.ok()) {
+    $('#releve-lire').textContent = 'Lecture…';
+    try {
+      const r = await appelServeur({ action: 'lireMesures', texte, cotes: cotes.map((e) => ({ lettre: e.lettre, nom: e.nom })) }, 60000);
+      trouve = {};
+      for (const x of r.mesures || []) if (lettres.includes(String(x.lettre).toUpperCase()) && x.metres > 0) trouve[String(x.lettre).toUpperCase()] = x.metres;
+      doute = r.doute || '';
+    } catch (e) { toast(`Lecture par Claude impossible : ${e.message}`, 'erreur'); }
+    $('#releve-lire').textContent = 'Lire la dictée';
+  }
+  if (!Object.keys(trouve).length) { toast('Je n\'ai trouvé aucune mesure dans la dictée.', 'erreur'); return; }
+  sauverHistorique();
+  for (const e of cotes) if (trouve[e.lettre]) e.valeur = trouve[e.lettre];
+  dessinerPanneauCotes();
+  redessinerReleve();
+  majReleve();
+  toast(`${Object.keys(trouve).length} mesure(s) lue(s) ✅${doute ? ` · ${doute}` : ''}`, 'ok');
+}
+
+let reconnaissance = null;
+function dicterMesures() {
+  const zone = $('#releve-dictee'), bouton = $('#releve-micro');
+  if (reconnaissance) { reconnaissance.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { zone.focus(); toast('Touche le micro 🎤 du clavier pour dicter.'); return; }
+  try {
+    const r = new SR();
+    r.lang = 'fr-FR';
+    r.interimResults = true;
+    r.continuous = true;
+    const debut = zone.value ? `${zone.value} ` : '';
+    r.onresult = (ev) => { zone.value = debut + [...ev.results].map((x) => x[0].transcript).join(' '); };
+    r.onerror = () => { zone.focus(); };
+    r.onend = () => { reconnaissance = null; bouton.textContent = '🎤 Dicter'; if (zone.value.trim()) lireDictee(); };
+    r.start();
+    reconnaissance = r;
+    bouton.textContent = '⏹ J\'ai fini';
+  } catch { zone.focus(); toast('Touche le micro 🎤 du clavier pour dicter.'); }
+}
+
+// Pignon trouvé par Claude : égouts, faîtage, rampants et pentes se déduisent du contour une fois l'échelle connue.
+function lineairesDepuisContour(s) {
+  const surf = R.elements.find((e) => e.type === 'surface');
+  if (!s || !surf || R.analyse?.forme !== 'pignon' || surf.pts.length !== 5) return [];
+  const [p0, p1, p2, p3, p4] = surf.pts;
+  const pente = (a, b) => Math.atan2(Math.abs(a.y - b.y) * s.sy, Math.abs(a.x - b.x) * s.sx);
+  const sol = (p0.y + p4.y) / 2;
+  return [
+    ['Égout gauche', `${fmtM(longueurM(p0, p1, s))} m`],
+    ['Égout droit', `${fmtM(longueurM(p4, p3, s))} m`],
+    ['Faîtage (hauteur)', `${fmtM((sol - p2.y) * s.sy)} m`],
+    ['Rampant gauche', `${fmtM(longueurM(p1, p2, s))} m`],
+    ['Rampant droit', `${fmtM(longueurM(p2, p3, s))} m`],
+    ['Pente gauche', afficherChamp('p', pente(p1, p2))],
+    ['Pente droite', afficherChamp('p', pente(p2, p3))],
+  ];
 }
 
 async function demarrerReleve(b) {
@@ -1809,6 +1990,8 @@ async function demarrerReleve(b) {
   if (b.ouvrage) R.ouvrage = b.ouvrage;
   if (b.params) R.params = b.params;
   if (b.gabarit) R.gabarit = b.gabarit;
+  R.analyse = b.analyse || null;
+  R.coteVisee = null;
   if (R.mode === 'photo') {
     const c = $('#releve-canvas');
     c.width = R.img.width;
@@ -1827,6 +2010,7 @@ async function demarrerReleve(b) {
     majPhotoJointe();
   } else {
     choisirOutilReleve(R.elements.length ? R.outil : 'cote');
+    dessinerPanneauCotes();
     redessinerReleve();
   }
   majReleve(false);
@@ -1837,7 +2021,7 @@ function sauverBrouillonReleve() {
   R.minuteur = setTimeout(async () => {
     if (!R.actif || !securite.cleDonnees) return;
     try {
-      const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit,
+      const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
         chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now() };
       ecrire('releve-brouillon', JSON.stringify(await chiffrer(JSON.stringify(b))));
     } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
@@ -2194,11 +2378,16 @@ function dessinerReleveSur(ctx, ep, s) {
     if (e.type === 'cote') continue;
     tracerSurface(ctx, e.pts, e.type, ep, true);
     const pe = pointEtiquette(e);
-    if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireM2(e.pts, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
+    // Ouvertures : petite étiquette (surface seule), pour ne pas cacher la photo.
+    if (s && e.type === 'ouverture') etiquette(ctx, `− ${fmtNb(aireM2(e.pts, s), 2)} m²`, pe.x, pe.y, ep * 0.5, '#ff9f97');
+    else if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireM2(e.pts, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
   }
   for (const e of R.elements) {
     if (e.type !== 'cote') continue;
-    dessinerForme(ctx, { type: 'cote', couleur: e.valeur > 0 ? '#ffcc00' : '#ffffff', a: e.a, b: e.b, texte: texteCote(e, s) }, ep);
+    // Cote proposée : sa lettre (A, B…) devant ; celle que l'on mesure en ce moment est en vert, plus épaisse.
+    const visee = R.coteVisee === e && !e.valeur;
+    const texte = e.lettre ? `${e.lettre}  ${e.valeur > 0 || s ? texteCote(e, s) : '?'}` : texteCote(e, s);
+    dessinerForme(ctx, { type: 'cote', couleur: visee ? '#30d158' : e.valeur > 0 ? '#ffcc00' : '#ffffff', a: e.a, b: e.b, texte }, visee ? ep * 1.4 : ep);
     pointsReleve(ctx, [e.a, e.b], ep);
   }
   const ec = R.enCours;
@@ -2458,12 +2647,20 @@ function majReleve(sauver = true) {
   const m = metreReleve(s);
   const aide = $('#releve-aide');
   const enSurface = R.outil === 'surface' || R.outil === 'ouverture';
-  if (!s) aide.textContent = '① Tire une cote sur quelque chose que tu as mesuré sur place (avec Mesure ou au mètre), puis tape sa mesure : elle donne l\'échelle.';
+  const proposees = R.elements.filter((e) => e.type === 'cote' && e.lettre);
+  R.lineaires = lineairesDepuisContour(s);
+  majPanneauCotes(s);
+  if (R.analyseEnCours) { /* le message d'attente reste affiché */ }
+  else if (proposees.length && !s) aide.textContent = `Prends les mesures ${proposees.map((e) => e.lettre).join(', ')} : touche une case puis vise au laser (ou tape, ou dicte). Dès la première, tout se calcule.`;
+  else if (proposees.length && s && proposees.some((e) => !e.valeur)) aide.textContent = `✓ Échelle trouvée. Les cases vides montrent la valeur d'après la photo : mesure-les pour contrôler.${s.refs >= 3 ? ` Écart max entre tes mesures et la photo : ${fmtNb(s.ecart * 100, 1)} %.` : ''}`;
+  else if (proposees.length && s) aide.textContent = `✓ Toutes les mesures sont prises.${s.refs >= 3 ? ` Écart max entre tes mesures et la photo : ${fmtNb(s.ecart * 100, 1)} %.` : ''} Tu peux créer la feuille.`;
+  else if (!s) aide.textContent = '① Tire une cote sur quelque chose que tu as mesuré sur place (avec Mesure ou au mètre), puis tape sa mesure : elle donne l\'échelle.';
   else if (enSurface) aide.textContent = R.outil === 'surface' ? 'Touche les coins de la surface un par un (la loupe aide), puis « Fermer la surface ».' : 'Touche les coins de l\'ouverture à déduire, puis « Fermer ».';
   else if (R.outil === 'modifier') aide.textContent = 'Fais glisser un point pour l\'ajuster, ou touche une cote ou une surface pour la modifier.';
   else if (s.refs === 1) aide.textContent = '✓ Échelle prise sur 1 mesure. Ajoute une 2e mesure dans l\'autre sens (verticale si la 1re est horizontale) : plus précis.';
   else aide.textContent = `✓ Échelle sur ${s.refs} mesures${s.deuxSens ? ' (dans les deux sens)' : ''}${s.refs >= 3 ? ` · écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}. Tire les autres cotes.`;
-  aide.classList.toggle('ok', !!s && !enSurface && R.outil !== 'modifier');
+  aide.classList.toggle('ok', !!s && !enSurface && (R.outil !== 'modifier' || proposees.length > 0));
+  aide.classList.toggle('analyse', !!R.analyseEnCours);
 
   const n = R.enCours?.pts?.length || 0;
   const bf = $('#releve-fermer-surface');
@@ -2472,7 +2669,7 @@ function majReleve(sauver = true) {
 
   const lignes = [];
   m.cotes.forEach((e, i) => {
-    const li = el('li', { class: 'cliquable' }, el('span', {}, `${e.nom || `Cote ${i + 1}`}`, e.valeur > 0 ? el('small', {}, ' mesurée') : null),
+    const li = el('li', { class: 'cliquable' }, el('span', {}, `${e.lettre ? `${e.lettre} · ` : ''}${e.nom || `Cote ${i + 1}`}`, e.valeur > 0 ? el('small', {}, ' mesurée') : null),
       el('b', { class: e.valeur > 0 ? 'mesuree' : '' }, s || e.valeur ? `${fmtM(valeurCote(e, s))} m` : '?'));
     li.onclick = () => { choisirOutilReleve('modifier'); ouvrirSelection(e); };
     lignes.push(li);
@@ -2484,6 +2681,7 @@ function majReleve(sauver = true) {
     lignes.push(li);
   }
   if (s && m.surfaces.length) lignes.push(el('li', { class: 'total' }, el('span', {}, 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+  for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a, el('small', {}, ' calculé')), el('b', {}, b)));
   $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Pas encore de mesure.')]));
 
   dessinerQuantites(m, 'Trace une surface (et ses ouvertures) pour avoir les quantités.');
@@ -2520,11 +2718,9 @@ function texteMetre() {
   m.cotes.forEach((e, i) => l.push(`${e.nom || `Cote ${i + 1}`} : ${texteValeur(e, s).replace(' ✓', '')} m${e.valeur > 0 ? ' (mesurée)' : e.suppose ? ' (supposée)' : R.mode === 'saisie' ? ' (calculée)' : ' (sur photo)'}`));
   for (const e of [...m.surfaces, ...m.ouvertures]) l.push(`${nomElement(e)} : ${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
   if (m.surfaces.length) l.push(`Surface nette : ${fmtNb(m.net, 2)} m²`);
-  if (R.mode === 'saisie') {
-    if (m.toiture) l.push(`Surface de toiture : ${fmtNb(m.toiture, 2)} m²`);
-    for (const [a, b] of R.lineaires) l.push(`${a} : ${b}`);
-    for (const a of R.alertes) l.push(`⚠ ${a}`);
-  }
+  if (m.toiture) l.push(`Surface de toiture : ${fmtNb(m.toiture, 2)} m²`);
+  for (const [a, b] of R.lineaires) l.push(`${a} : ${b}`);
+  if (R.mode === 'saisie') for (const a of R.alertes) l.push(`⚠ ${a}`);
   const q = quantitesReleve(m);
   if (q.length) { l.push('', `${NOMS_OUVRAGES[R.ouvrage]} :`); for (const [a, b] of q) l.push(`- ${a} : ${b}`); }
   return l.join('\n');
@@ -2634,14 +2830,14 @@ function pageEsquisse(s, m) {
     ctx.fillText(b, XD, y); y += 44;
   };
   titre('Cotes');
-  m.cotes.forEach((e, i) => ligne(`${e.nom || `Cote ${i + 1}`}${e.valeur > 0 ? ' ✓' : e.suppose ? ' (supposé)' : ''}`, `${texteValeur(e, s).replace(' ✓', '').replace('≈ ', '')} m`));
+  m.cotes.forEach((e, i) => ligne(`${e.lettre ? `${e.lettre} · ` : ''}${e.nom || `Cote ${i + 1}`}${e.valeur > 0 ? ' ✓' : e.suppose ? ' (supposé)' : ''}`, `${texteValeur(e, s).replace(' ✓', '').replace('≈ ', '')} m`));
   if (m.surfaces.length || m.ouvertures.length) {
     y += 16; titre('Surfaces');
     for (const e of [...m.surfaces, ...m.ouvertures]) ligne(nomElement(e), `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
     if (m.surfaces.length) ligne('Surface nette', `${fmtNb(m.net, 2)} m²`, true);
   }
-  if (R.mode === 'saisie' && (R.lineaires.length || m.toiture)) {
-    y += 16; titre('Toiture et linéaires');
+  if (R.lineaires.length || m.toiture) {
+    y += 16; titre(R.mode === 'saisie' ? 'Toiture et linéaires' : 'Calculé d\'après la photo');
     if (m.toiture) ligne('Surface de toiture', `${fmtNb(m.toiture, 2)} m²`);
     for (const [a, b] of R.lineaires) ligne(a, b);
   }
@@ -2688,12 +2884,19 @@ function dessinerPlan(ctx, zone, s, f = 1) {
     ctx.font = `600 ${28 * f}px -apple-system, "Segoe UI", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    // Petite ouverture (le nom ne tient pas dedans) : surface seule, le nom est dans le tableau.
+    const largeurPx = (Math.max(...e.pts.map((p) => p.x)) - Math.min(...e.pts.map((p) => p.x))) * s.sx * k;
+    if (e.type === 'ouverture' && largeurPx < ctx.measureText(nomElement(e)).width + 10 * f) {
+      ctx.font = `400 ${22 * f}px -apple-system, "Segoe UI", sans-serif`;
+      ctx.fillText(complet && !e.inconnu ? `− ${fmtNb(aireM2(e.pts, s), 2)}` : '?', cc.x, cc.y);
+      continue;
+    }
     ctx.fillText(nomElement(e), cc.x, cc.y - 18 * f);
     ctx.font = `400 ${26 * f}px -apple-system, "Segoe UI", sans-serif`;
     ctx.fillText(complet && !e.inconnu ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²` : '? m²', cc.x, cc.y + 18 * f);
   }
   for (const e of R.elements.filter((x) => x.type === 'cote')) {
-    coteSurPlan(ctx, P(e.a), P(e.b), `${e.nom && !e.court ? `${e.nom} ` : ''}${texteValeur(e, s)}`, e.valeur > 0, f, e.inconnu);
+    coteSurPlan(ctx, P(e.a), P(e.b), `${e.lettre ? `${e.lettre} ` : ''}${e.nom && !e.court ? `${e.nom} ` : ''}${texteValeur(e, s)}`, e.valeur > 0, f, e.inconnu);
   }
 }
 
@@ -3657,6 +3860,12 @@ document.addEventListener('DOMContentLoaded', () => {
     $(id).onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f); };
   }
   $('#releve-reprendre').onclick = reprendreReleve;
+  $('#releve-micro').onclick = dicterMesures;
+  $('#releve-lire').onclick = lireDictee;
+  $('#releve-reanalyser').onclick = () => {
+    if (R.elements.some((e) => e.valeur > 0) && !confirm('Refaire l\'analyse ? Les mesures déjà tapées seront effacées.')) return;
+    analyserPhotoReleve();
+  };
   $('#releve-saisie').onclick = () => demarrerReleve({ mode: 'saisie', chantier: $('#releve-chantier').value, gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } });
   for (const b of $$('#gabarit-types [data-gabarit]')) b.onclick = () => choisirGabarit(b.dataset.gabarit);
   $('#gabarit-ajouter-ouverture').onclick = () => { R.gabarit.ouvertures.push({ nom: '', l: '', h: '', x: '', s: '' }); dessinerOuvertures(); majReleve(); };
