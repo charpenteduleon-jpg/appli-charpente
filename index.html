@@ -78,6 +78,15 @@
       <button class="fermer" data-ferme="bandeau-faceid" aria-label="Fermer">×</button>
     </div>
 
+    <button id="btn-rdv" class="deposer rdv">
+      <span class="deposer-ico">🤝</span>
+      <span class="deposer-texte">
+        <span class="titre">Rendez-vous client</span>
+        <span class="sous-titre">Client, photos, mesures, notes : tout pour le devis</span>
+      </span>
+      <span class="chevron">›</span>
+    </button>
+
     <button id="btn-deposer" class="deposer">
       <span class="deposer-ico">📄</span>
       <span class="deposer-texte">
@@ -290,6 +299,63 @@
       <button id="annot-defaire" class="btn-petit" disabled>↩︎ Défaire</button>
     </div>
     <p class="discret centre petit-texte">Glisse le doigt sur la photo. Pour une cote, tire le trait puis tape la mesure.</p>
+  </section>
+
+  <!-- ===================== RENDEZ-VOUS CLIENT ===================== -->
+  <section id="ecran-rdv" class="ecran plein cache">
+    <div class="barre-haut">
+      <button id="rdv-fermer" class="retour">‹ Accueil</button>
+      <strong>Rendez-vous</strong>
+      <span id="rdv-heure" class="discret petit-texte"></span>
+    </div>
+
+    <section class="carte">
+      <h2>👤 Client</h2>
+      <div id="rdv-type" class="segment">
+        <button data-type="nouveau" class="active">Nouveau client</button>
+        <button data-type="existant">Chantier existant</button>
+      </div>
+      <div id="rdv-existant" class="cache"><select id="rdv-chantier-select"></select></div>
+      <div id="rdv-nouveau" class="champ"><label for="rdv-nom">Nom du chantier</label>
+        <input id="rdv-nom" type="text" autocomplete="off" placeholder="ex. Dupont Plouescat"></div>
+      <div class="deux-champs">
+        <div class="champ"><label for="rdv-client">Client</label><input id="rdv-client" type="text" autocomplete="off"></div>
+        <div class="champ"><label for="rdv-tel">Téléphone</label><input id="rdv-tel" type="tel" autocomplete="off"></div>
+      </div>
+      <div class="champ"><label for="rdv-adresse">Adresse du chantier</label><input id="rdv-adresse" type="text" autocomplete="off"></div>
+      <div class="champ"><label for="rdv-email">E-mail</label><input id="rdv-email" type="email" autocomplete="off" autocapitalize="off"></div>
+    </section>
+
+    <div class="rdv-actions">
+      <button id="rdv-photo" class="action"><span class="tuile t-or">📷</span>Photos<small id="rdv-compte-photos"></small></button>
+      <button id="rdv-mesures" class="action"><span class="tuile t-bleu">📏</span>Mesures<small id="rdv-compte-releves"></small></button>
+      <button id="rdv-notes" class="action"><span class="tuile t-violet">📝</span>Notes papier<small id="rdv-compte-notes"></small></button>
+    </div>
+    <p class="discret petit-texte centre">Chaque photo part tout de suite dans le dossier du chantier : pas besoin de revenir.</p>
+
+    <section class="carte">
+      <h2>🎙️ Ce que veut le client</h2>
+      <textarea id="rdv-dictee" rows="6" placeholder="Parle normalement : les travaux, les matériaux, les mesures, les délais, le budget… Je comprendrai."></textarea>
+      <button id="rdv-micro" class="btn secondaire">🎤 Dicter</button>
+    </section>
+
+    <section class="carte">
+      <h2>✅ Travaux</h2>
+      <div id="rdv-travaux" class="puces"></div>
+      <div class="deux-champs">
+        <div class="champ"><label for="rdv-budget">Budget du client</label><input id="rdv-budget" type="text" autocomplete="off"></div>
+        <div class="champ"><label for="rdv-delai">Délai souhaité</label><input id="rdv-delai" type="text" autocomplete="off"></div>
+      </div>
+    </section>
+
+    <section class="carte">
+      <h2>📏 Relevés</h2>
+      <ul id="rdv-releves" class="resultats"></ul>
+    </section>
+
+    <div class="pied-fixe">
+      <button id="rdv-terminer" class="btn principal">📝 Terminer et préparer le devis</button>
+    </div>
   </section>
 
   <!-- ===================== RELEVÉ DE MESURES ===================== -->
@@ -679,6 +745,8 @@
   <input id="releve-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="releve-galerie-input" class="cache" type="file" accept="image/*">
   <input id="gabarit-photo-input" class="cache" type="file" accept="image/*">
+  <input id="rdv-photo-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="rdv-notes-input" class="cache" type="file" accept="image/*" capture="environment">
 
   <div id="toast" class="toast cache" role="status" aria-live="polite"></div>
   <div id="confettis" class="confettis" aria-hidden="true"></div>

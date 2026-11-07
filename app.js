@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.10.1';
+const VERSION = '1.11.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -696,7 +696,8 @@ function dessinerAgenda(evenements, depuisCache, erreur) {
   if (!aVenir.length) { ul.replaceChildren(el('li', { class: 'vide' }, 'Rien de prévu dans les 7 jours.')); return; }
   ul.replaceChildren(...aVenir.map((e) => {
     const d = new Date(e.debut);
-    return el('li', {},
+    // Toucher un rendez-vous de l'agenda démarre la visite avec le nom et le lieu déjà remplis.
+    return el('li', { class: 'cliquable', onclick: () => { if (confirm(`Démarrer le rendez-vous « ${e.titre} » ?`)) demarrerRdv(e); } },
       el('div', { class: 'agenda-date' }, el('small', {}, d.toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', '')), el('b', {}, String(d.getDate()))),
       el('div', { class: 'agenda-texte' }, el('div', {}, e.titre), el('small', {}, `${jourLisible(e.debut, e.journee)}${e.lieu ? ' · ' + e.lieu : ''}`)));
   }));
@@ -1664,8 +1665,13 @@ const fmtNb = (n, d = 0) => n.toLocaleString('fr-FR', { minimumFractionDigits: d
 
 // « 4,35 » → 4.35 m ; « 435 cm » → 4.35 ; « 4350 mm » → 4.35. Vide → 0. Illisible → null.
 function lireMesure(texte) {
-  const t = String(texte || '').trim().toLowerCase().replace(/\s/g, '').replace(',', '.');
+  const t = String(texte || '').trim().toLowerCase()
+    .replace(/millim[eè]tres?/g, 'mm').replace(/centim[eè]tres?/g, 'cm').replace(/m[eè]tres?/g, 'm')
+    .replace(/virgule/g, ',').replace(/\s/g, '').replace(',', '.');
   if (!t) return 0;
+  // « 12 m 50 » ou « 12m5 » (dictée ou saisie rapide) → 12,50 m.
+  const mm = t.match(/^(\d+)m(\d{1,3})$/);
+  if (mm) return Number(mm[1]) + Number(mm[2]) / 10 ** mm[2].length;
   const m = t.match(/^(\d+(?:\.\d+)?)(mm|cm|m)?$/);
   if (!m) return null;
   const n = Number(m[1]);
@@ -1829,7 +1835,8 @@ async function ouvrirReleve(chantier = '') {
   if (R.actif) { if (chantier) $('#releve-chantier').value = chantier; if (R.mode === 'photo') redessinerReleve(); majReleve(false); return; }
   $('#releve-depart').classList.remove('cache');
   $('#releve-travail').classList.add('cache');
-  $('#releve-reprendre').classList.toggle('cache', !lire('releve-brouillon'));
+  $('#releve-reprendre').classList.add('cache');
+  brouillonLire().then((b) => $('#releve-reprendre').classList.toggle('cache', !b));
 }
 
 // Photo choisie : en mode saisie, elle est seulement jointe à la feuille ; sinon on mesure dessus.
@@ -1844,7 +1851,8 @@ async function photoReleve(fichier, mode = 'photo') {
       sauverBrouillonReleve();
       return;
     }
-    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value });
+    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv });
+    envoyerPhotoReleve();
     analyserPhotoReleve();
   } catch (e) { toast(e.message, 'erreur'); }
 }
@@ -1908,6 +1916,8 @@ function appliquerAnalyse(a, f = 1) {
 function dessinerPanneauCotes() {
   const cotes = R.elements.filter((e) => e.type === 'cote' && e.lettre);
   $('#releve-cotes').classList.toggle('cache', !cotes.length);
+  // Pendant la prise des mesures, la photo reste fixée en haut de l'écran.
+  $('#ecran-releve').classList.toggle('saisie-cotes', cotes.length > 0);
   if (!cotes.length) return;
   $('#releve-cotes-analyse').textContent = [R.analyse?.description, R.analyse?.remarques].filter(Boolean).join(' ');
   $('#releve-cotes-liste').replaceChildren(...cotes.map((e, i) => {
@@ -2051,6 +2061,8 @@ async function demarrerReleve(b) {
   if (b.gabarit) R.gabarit = b.gabarit;
   R.analyse = b.analyse || null;
   R.coteVisee = null;
+  R.photoEnvoyee = !!b.photoEnvoyee;
+  R.depuisRdv = !!b.depuisRdv;
   if (R.mode === 'photo') {
     const c = $('#releve-canvas');
     c.width = R.img.width;
@@ -2075,28 +2087,63 @@ async function demarrerReleve(b) {
   majReleve(false);
 }
 
+// Le relevé en cours est gardé (chiffré) dans la base de l'iPhone, assez grande pour la photo : si l'iPhone
+// ferme l'appli pendant qu'on mesure, rien n'est perdu et le relevé se rouvre tout seul.
+const CLE_BROUILLON = 'releve-brouillon';
+async function brouillonLire() {
+  try {
+    const enreg = await cleLire(CLE_BROUILLON);
+    if (enreg) return JSON.parse(await dechiffrer(enreg));
+  } catch (e) { console.warn('Brouillon illisible', e); }
+  // Ancienne place (1.9 et 1.10) : localStorage.
+  try { const v = lire(CLE_BROUILLON); if (v) return JSON.parse(await dechiffrer(JSON.parse(v))); } catch { /* rien */ }
+  return null;
+}
+function brouillonEffacer() {
+  try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
+  return fileAction('readwrite', (s) => s.delete(CLE_BROUILLON), MAGASIN_CLES).catch(() => {});
+}
+async function sauverBrouillonMaintenant() {
+  clearTimeout(R.minuteur);
+  if (!R.actif || !securite.cleDonnees) return;
+  try {
+    const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
+      chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
+      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv };
+    await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(b)));
+    try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
+  } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
+}
 function sauverBrouillonReleve() {
   clearTimeout(R.minuteur);
-  R.minuteur = setTimeout(async () => {
-    if (!R.actif || !securite.cleDonnees) return;
-    try {
-      const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
-        chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now() };
-      ecrire('releve-brouillon', JSON.stringify(await chiffrer(JSON.stringify(b))));
-    } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
-  }, 800);
+  R.minuteur = setTimeout(sauverBrouillonMaintenant, 400);
 }
 
-async function reprendreReleve() {
-  try {
-    const b = JSON.parse(await dechiffrer(JSON.parse(lire('releve-brouillon'))));
-    await demarrerReleve(b);
-  } catch (e) {
+async function reprendreReleve(b = null) {
+  b = b || await brouillonLire();
+  if (!b) { toast('Aucun relevé en cours.', 'erreur'); $('#releve-reprendre').classList.add('cache'); return; }
+  try { await demarrerReleve(b); } catch (e) {
     console.warn(e);
     toast('Relevé en cours illisible.', 'erreur');
-    localStorage.removeItem('releve-brouillon');
+    brouillonEffacer();
     $('#releve-reprendre').classList.add('cache');
   }
+}
+
+// Au démarrage : un relevé laissé il y a moins de 2 heures (l'iPhone a fermé l'appli) est rouvert directement.
+async function rouvrirReleveRecent() {
+  const b = await brouillonLire();
+  const rdv = lireJson('rdv-en-cours', null);
+  if (rdv?.actif) Object.assign(V, rdv);
+  if (b && Date.now() - (b.date || 0) < 2 * 3600000) {
+    remplirSelectChantiers($('#releve-chantier'), b.chantier || '', '— Choisir le chantier —');
+    afficher('releve');
+    await reprendreReleve(b);
+    toast('Ton relevé en cours a été retrouvé ✅', 'ok');
+    return;
+  }
+  // Rendez-vous commencé il y a moins de 12 heures : on y revient directement.
+  if (rdv?.actif && Date.now() - rdv.debut < 12 * 3600000) { ouvrirRdv(); toast('Ton rendez-vous en cours a été retrouvé ✅', 'ok'); }
 }
 
 function nouveauReleve() {
@@ -2107,7 +2154,8 @@ function nouveauReleve() {
   R.img = null;
   R.elements = [];
   R.gabarit = { type: 'pignon', saisis: {}, ouvertures: [] };
-  try { localStorage.removeItem('releve-brouillon'); } catch { /* rien */ }
+  R.analyse = null;
+  brouillonEffacer();
   ouvrirReleve($('#releve-chantier').value);
 }
 
@@ -3005,10 +3053,210 @@ async function rangerFeuille() {
   const chantier = $('#releve-chantier').value;
   if (!chantier) { toast('Choisis le chantier en bas du relevé.', 'erreur'); afficher('releve'); return; }
   $('#feuille-ranger').disabled = true;
-  const commun = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: R.feuilles.length, type: '', chantier, note: 'Relevé de mesures' };
+  const commun = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: R.feuilles.length, type: '', chantier,
+    note: 'Relevé de mesures', rubrique: '01 Plans', prefixe: 'Releve' };
   const envois = R.feuilles.map((d, i) => ({ ...commun, page: i + 1, fichier: { mime: 'image/jpeg', data: d.split(',')[1] } }));
+  envoyerPhotoReleve(); // la photo d'origine aussi, si elle n'est pas déjà partie
   const { tousPartis } = await mettreEnFile(envois);
+  brouillonEffacer(); // la feuille est rangée (ou dans la file d'envoi) : plus besoin de rouvrir ce relevé au démarrage
   toast(tousPartis ? `Relevé rangé dans ${chantier} ✅` : 'Pas de réseau : le relevé partira tout seul.', tousPartis ? 'ok' : '');
+  if (R.depuisRdv && V.actif) {
+    V.releves.push(texteMetre());
+    sauverRdv();
+    R.depuisRdv = false;
+    R.actif = false;
+    ouvrirRdv();
+  }
+}
+
+// La photo du relevé est gardée dans le chantier (« 04 Photos ») dès que le chantier est connu : pas besoin d'y retourner.
+function envoyerPhotoReleve() {
+  const chantier = $('#releve-chantier').value;
+  if (!R.photo || R.photoEnvoyee || !chantier) return;
+  R.photoEnvoyee = true;
+  mettreEnFile([{ action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: 1, page: 1, type: '', chantier,
+    note: 'Photo du relevé', fichier: { mime: 'image/jpeg', data: R.photo.split(',')[1] } }]);
+}
+
+// ===================== Rendez-vous client =====================
+// Point de départ d'une visite : le client, puis photos, mesures, notes papier et dictée, tout rangé au fur et à
+// mesure dans le chantier. « Préparer le devis » envoie le compte rendu ; l'assistant prépare le brouillon ProGBat.
+const TRAVAUX = ['Charpente neuve', 'Rénovation charpente', 'Couverture', 'Désamiantage', 'Bardage', 'Ossature bois',
+  'Extension', 'Zinguerie', 'Isolation', 'Menuiseries / Velux', 'Terrasse / carport', 'Autre'];
+const V = { actif: false };
+
+function rdvVide(ev = null) {
+  return { actif: true, debut: Date.now(), type: 'nouveau', chantier: '', nom: ev?.titre || '', client: '', tel: '', adresse: ev?.lieu || '',
+    email: '', travaux: [], dictee: '', budget: '', delai: '', photos: 0, notes: 0, releves: [], chantierEnvoye: false, evenement: ev?.titre || '' };
+}
+
+function sauverRdv() { if (V.actif) ecrireJson('rdv-en-cours', { ...V }); }
+
+function demarrerRdv(ev = null) {
+  const enCours = lireJson('rdv-en-cours', null);
+  if (enCours?.actif && !ev && !confirm('Un rendez-vous est déjà en cours. Le reprendre ?\n(Annuler = en commencer un nouveau)')) {
+    Object.assign(V, rdvVide(ev));
+  } else if (enCours?.actif && !ev) {
+    Object.assign(V, enCours);
+  } else {
+    Object.assign(V, rdvVide(ev));
+    // Rendez-vous de l'agenda : on cherche si le chantier existe déjà.
+    if (ev) {
+      const titre = normaliser(ev.titre);
+      const c = listeChantiers().find((x) => titre.includes(normaliser(x.nom)) || normaliser(x.nom).includes(titre));
+      if (c) { V.type = 'existant'; V.chantier = c.nom; }
+    }
+  }
+  sauverRdv();
+  ouvrirRdv();
+}
+
+function ouvrirRdv() {
+  remplirSelectChantiers($('#rdv-chantier-select'), V.chantier, '— Choisir le chantier —');
+  for (const b of $$('#rdv-type [data-type]')) b.classList.toggle('active', b.dataset.type === V.type);
+  $('#rdv-existant').classList.toggle('cache', V.type !== 'existant');
+  $('#rdv-nouveau').classList.toggle('cache', V.type !== 'nouveau');
+  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'], ['#rdv-adresse', 'adresse'],
+    ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) $(id).value = V[cle] || '';
+  // Chantier existant : on reprend ce que la fiche connaît déjà.
+  if (V.type === 'existant' && V.chantier) {
+    const f = lireJson(`fiche:${V.chantier}`, null);
+    const c = listeChantiers().find((x) => x.nom === V.chantier) || {};
+    if (!V.client) $('#rdv-client').value = V.client = c.client || f?.client || '';
+    if (!V.tel) $('#rdv-tel').value = V.tel = f?.telephone || '';
+    if (!V.adresse) $('#rdv-adresse').value = V.adresse = f?.adresse || '';
+  }
+  $('#rdv-travaux').replaceChildren(...TRAVAUX.map((t) => {
+    const b = el('button', { class: `puce${V.travaux.includes(t) ? ' active' : ''}` }, t);
+    b.onclick = () => {
+      V.travaux = V.travaux.includes(t) ? V.travaux.filter((x) => x !== t) : [...V.travaux, t];
+      b.classList.toggle('active');
+      sauverRdv();
+    };
+    return b;
+  }));
+  majRdv();
+  afficher('rdv');
+}
+
+const chantierRdv = () => (V.type === 'existant' ? V.chantier : V.nom.trim());
+
+function majRdv() {
+  $('#rdv-heure').textContent = `commencé à ${new Date(V.debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  $('#rdv-compte-photos').textContent = V.photos ? `${V.photos} rangée${V.photos > 1 ? 's' : ''}` : 'aucune';
+  $('#rdv-compte-notes').textContent = V.notes ? `${V.notes} page${V.notes > 1 ? 's' : ''}` : 'aucune';
+  $('#rdv-compte-releves').textContent = V.releves.length ? `${V.releves.length} fait${V.releves.length > 1 ? 's' : ''}` : 'aucun';
+  $('#rdv-releves').replaceChildren(...(V.releves.length
+    ? V.releves.map((t) => el('li', {}, el('span', { class: 'releve-resume' }, t.split('\n').filter(Boolean).slice(1, 4).join(' · '))))
+    : [el('li', { class: 'vide' }, 'Touche « Mesures » pour faire un relevé.')]));
+  $('#rdv-terminer').disabled = !chantierRdv();
+}
+
+// Le chantier doit exister (dossier Drive) avant la première photo : on l'annonce une seule fois au serveur.
+function assurerChantierRdv() {
+  const nom = chantierRdv();
+  if (!nom) {
+    toast(V.type === 'existant' ? 'Choisis d\'abord le chantier.' : 'Tape d\'abord le nom du chantier (ex. Dupont Plouescat).', 'erreur');
+    (V.type === 'existant' ? $('#rdv-chantier-select') : $('#rdv-nom')).focus();
+    return null;
+  }
+  if (!V.chantierEnvoye) {
+    const maj = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse };
+    if (V.type === 'nouveau') maj.statut = 'Devis en attente';
+    mettreEnFile([maj]);
+    V.chantierEnvoye = true;
+    if (V.type === 'nouveau' && !listeChantiers().some((c) => c.nom === nom)) {
+      ecrireJson('chantiers', [...listeChantiers(), { nom, client: V.client, statut: 'Devis en attente' }]);
+    }
+    sauverRdv();
+  }
+  return nom;
+}
+
+async function photoRdv(fichier, notesPapier) {
+  const chantier = assurerChantierRdv();
+  if (!chantier || !fichier) return;
+  try {
+    const data = await traiterImage(fichier, notesPapier);
+    const envoi = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: 1, page: 1, type: '', chantier,
+      note: notesPapier ? 'Notes papier du rendez-vous' : 'Photo du rendez-vous', fichier: { mime: 'image/jpeg', data: data.split(',')[1] } };
+    if (notesPapier) Object.assign(envoi, { rubrique: '02 Devis & contrat', prefixe: 'Notes-RDV' });
+    if (notesPapier) V.notes++; else V.photos++;
+    sauverRdv();
+    majRdv();
+    const { tousPartis } = await mettreEnFile([envoi]);
+    toast(tousPartis ? (notesPapier ? 'Notes rangées ✅' : 'Photo rangée ✅') : 'Gardée : elle partira dès qu\'il y aura du réseau.', tousPartis ? 'ok' : '');
+  } catch (e) { toast(e.message, 'erreur'); }
+}
+
+function mesuresRdv() {
+  const chantier = assurerChantierRdv();
+  if (!chantier) return;
+  R.actif = false;
+  R.photo = '';
+  R.img = null;
+  R.elements = [];
+  R.analyse = null;
+  R.photoEnvoyee = false;
+  R.depuisRdv = true;
+  ouvrirReleve(chantier);
+}
+
+let dicteeRdv = null;
+function dicterRdv() {
+  const zone = $('#rdv-dictee'), bouton = $('#rdv-micro');
+  if (dicteeRdv) { dicteeRdv.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { zone.focus(); toast('Touche le micro 🎤 du clavier pour dicter.'); return; }
+  try {
+    const r = new SR();
+    r.lang = 'fr-FR';
+    r.interimResults = true;
+    r.continuous = true;
+    const debut = zone.value ? `${zone.value}\n` : '';
+    r.onresult = (ev) => { zone.value = debut + [...ev.results].map((x) => x[0].transcript).join(' '); V.dictee = zone.value; };
+    r.onerror = () => zone.focus();
+    r.onend = () => { dicteeRdv = null; bouton.textContent = '🎤 Dicter'; V.dictee = zone.value; sauverRdv(); };
+    r.start();
+    dicteeRdv = r;
+    bouton.textContent = '⏹ J\'ai fini';
+  } catch { zone.focus(); toast('Touche le micro 🎤 du clavier pour dicter.'); }
+}
+
+function texteRdv() {
+  const nom = chantierRdv();
+  const l = [
+    `Rendez-vous du ${new Date(V.debut).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}`,
+    `Chantier : ${nom}${V.type === 'nouveau' ? ' (nouveau client)' : ''}`,
+    `Client : ${V.client || '—'} · Tél. : ${V.tel || '—'} · E-mail : ${V.email || '—'}`,
+    `Adresse : ${V.adresse || '—'}`,
+    V.evenement ? `Rendez-vous de l'agenda : ${V.evenement}` : '',
+    '',
+    `Travaux : ${V.travaux.join(', ') || '—'}`,
+    `Budget du client : ${V.budget || '—'} · Délai souhaité : ${V.delai || '—'}`,
+    '',
+    'Ce que veut le client (dictée de Jean-Phi, telle quelle) :',
+    V.dictee || '—',
+    '',
+    `Photos : ${V.photos} (dans « 04 Photos ») · Notes papier : ${V.notes} page(s) (dans « 02 Devis & contrat », fichiers « Notes-RDV »)`,
+  ];
+  V.releves.forEach((t, i) => l.push('', `Relevé ${i + 1} :`, t));
+  return l.filter((x) => x !== null).join('\n');
+}
+
+async function terminerRdv() {
+  const nom = assurerChantierRdv();
+  if (!nom) return;
+  if (!V.dictee.trim() && !V.travaux.length && !V.releves.length && !V.notes &&
+    !confirm('Rien n\'a été dicté, coché ou mesuré. Envoyer quand même ?')) return;
+  const resume = `${nom} : ${V.travaux.join(', ') || 'travaux à préciser'}`;
+  const majInfos = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse };
+  const { tousPartis } = await mettreEnFile([majInfos,
+    { action: 'visite', chantier: nom, texte: texteRdv(), resume, date: new Date(V.debut).toISOString() }]);
+  V.actif = false;
+  ecrireJson('rdv-en-cours', null);
+  ouvrirOnglet('accueil');
+  toast(tousPartis ? 'Rendez-vous envoyé ✅ Je prépare le brouillon du devis.' : 'Gardé : il partira dès qu\'il y aura du réseau.', tousPartis ? 'ok' : '');
 }
 
 async function partagerFeuille() {
@@ -3927,14 +4175,20 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const id of ['#releve-input', '#releve-galerie-input']) {
     $(id).onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f); };
   }
-  $('#releve-reprendre').onclick = reprendreReleve;
+  $('#releve-reprendre').onclick = () => reprendreReleve();
   $('#releve-micro').onclick = dicterMesures;
+  // Clavier ouvert : le bouton du bas se cache pour ne pas couvrir la case qu'on remplit.
+  $('#ecran-releve').addEventListener('focusin', (e) => { if (e.target.matches('input, textarea')) document.body.classList.add('clavier'); });
+  $('#ecran-releve').addEventListener('focusout', () => setTimeout(() => {
+    if (!document.activeElement?.matches?.('#ecran-releve input, #ecran-releve textarea')) document.body.classList.remove('clavier');
+  }, 100));
   $('#releve-lire').onclick = lireDictee;
   $('#releve-reanalyser').onclick = () => {
     if (R.elements.some((e) => e.valeur > 0) && !confirm('Refaire l\'analyse ? Les mesures déjà tapées seront effacées.')) return;
     analyserPhotoReleve();
   };
-  $('#releve-saisie').onclick = () => demarrerReleve({ mode: 'saisie', chantier: $('#releve-chantier').value, gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } });
+  $('#releve-saisie').onclick = () => demarrerReleve({ mode: 'saisie', chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv,
+    gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } });
   for (const b of $$('#gabarit-types [data-gabarit]')) b.onclick = () => choisirGabarit(b.dataset.gabarit);
   $('#gabarit-ajouter-ouverture').onclick = () => { R.gabarit.ouvertures.push({ nom: '', l: '', h: '', x: '', s: '' }); dessinerOuvertures(); majReleve(); };
   $('#gabarit-photo').onclick = () => $('#gabarit-photo-input').click();
@@ -3955,8 +4209,30 @@ document.addEventListener('DOMContentLoaded', () => {
       majReleve();
     };
   }
-  $('#releve-chantier').onchange = () => sauverBrouillonReleve();
-  $('#releve-fermer').onclick = () => (ecranPrecedent === 'fiche' ? afficher('fiche') : retourOnglet());
+  $('#releve-chantier').onchange = () => { envoyerPhotoReleve(); sauverBrouillonReleve(); };
+  $('#releve-fermer').onclick = () => {
+    if (R.depuisRdv && V.actif) { ouvrirRdv(); return; }
+    if (ecranPrecedent === 'fiche') afficher('fiche'); else retourOnglet();
+  };
+
+  // Rendez-vous client
+  $('#btn-rdv').onclick = () => demarrerRdv();
+  $('#rdv-fermer').onclick = () => { sauverRdv(); ouvrirOnglet('accueil'); };
+  for (const b of $$('#rdv-type [data-type]')) {
+    b.onclick = () => { V.type = b.dataset.type; V.chantierEnvoye = false; sauverRdv(); ouvrirRdv(); };
+  }
+  $('#rdv-chantier-select').onchange = (e) => { V.chantier = e.target.value; V.chantierEnvoye = false; V.client = V.tel = V.adresse = ''; sauverRdv(); ouvrirRdv(); };
+  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'], ['#rdv-adresse', 'adresse'],
+    ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) {
+    $(id).oninput = (e) => { V[cle] = e.target.value; if (cle === 'nom') V.chantierEnvoye = false; sauverRdv(); majRdv(); };
+  }
+  $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) $('#rdv-photo-input').click(); };
+  $('#rdv-notes').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-input').click(); };
+  $('#rdv-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, false); };
+  $('#rdv-notes-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, true); };
+  $('#rdv-mesures').onclick = mesuresRdv;
+  $('#rdv-micro').onclick = dicterRdv;
+  $('#rdv-terminer').onclick = terminerRdv;
   $('#releve-nouveau').onclick = nouveauReleve;
   $('#releve-envoyer').onclick = creerFeuille;
   $('#feuille-retour').onclick = () => afficher('releve');
@@ -4071,6 +4347,7 @@ document.addEventListener('DOMContentLoaded', () => {
       securite.cacheDepuis = Date.now();
       if (faceIdActif()) document.body.classList.add('masque');
       sauverCoffre();
+      if (R.actif) sauverBrouillonMaintenant(); // l'iPhone peut fermer l'appli pendant qu'on mesure ailleurs
       return;
     }
     document.body.classList.remove('masque');
@@ -4098,7 +4375,7 @@ async function demarrer() {
   demarree = true;
   dernierePosition = lireJson('position', null);
   if (lire('bienvenue-ok') !== '1') ouvrirBienvenue();
-  else ouvrirOnglet('accueil');
+  else { ouvrirOnglet('accueil'); rouvrirReleveRecent().catch(() => {}); }
   await appairageAutomatique();
   viderFile();
 }
