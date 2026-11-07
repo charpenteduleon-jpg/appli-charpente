@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.17.0">
+  <meta name="version-appli" content="1.17.1">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -358,6 +358,8 @@
       <h2>📏 Relevés</h2>
       <ul id="rdv-releves" class="resultats"></ul>
     </section>
+
+    <button id="rdv-abandonner" class="lien discret archiver">Abandonner ce rendez-vous</button>
 
     <div class="pied-fixe">
       <button id="rdv-terminer" class="btn principal">📝 Terminer et préparer le devis</button>

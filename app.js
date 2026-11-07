@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -585,6 +585,7 @@ function rafraichirAccueil() {
   const h = maintenant.getHours();
   $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
+  majBoutonRdv();
   if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || innerWidth >= 1100) {
     // Sur le PC, la même appli s'installe depuis Edge.
     $('#bandeau-installer strong').textContent = "Installe l'appli sur ce PC";
@@ -2402,8 +2403,9 @@ async function rouvrirReleveRecent() {
     toast('Ton relevé en cours a été retrouvé ✅', 'ok');
     return;
   }
-  // Rendez-vous commencé il y a moins de 12 heures : on y revient directement.
-  if (rdv?.actif && Date.now() - rdv.debut < 12 * 3600000) { ouvrirRdv(); toast('Ton rendez-vous en cours a été retrouvé ✅', 'ok'); }
+  // Rendez-vous touché il y a moins de 30 minutes (l'iPhone a fermé l'appli pendant une photo) : on y revient
+  // directement. Plus ancien : on reste sur l'accueil, avec le bouton « Reprendre le rendez-vous ».
+  if (rdv?.actif && Date.now() - (rdv.maj || rdv.debut) < 30 * 60000) { ouvrirRdv(); toast('Ton rendez-vous en cours a été retrouvé ✅', 'ok'); }
 }
 
 function nouveauReleve() {
@@ -3514,7 +3516,27 @@ function rdvVide(ev = null) {
     email: '', travaux: [], dictee: '', budget: '', delai: '', photos: 0, notes: 0, releves: [], chantierEnvoye: false, evenement: ev?.titre || '' };
 }
 
-function sauverRdv() { if (V.actif) ecrireJson('rdv-en-cours', { ...V }); }
+function sauverRdv() { if (V.actif) { V.maj = Date.now(); ecrireJson('rdv-en-cours', { ...V }); } }
+
+// Abandonner : le rendez-vous n'est plus rouvert ; ce qui est déjà parti (photos, notes, relevés) reste dans le chantier.
+function abandonnerRdv() {
+  if (!confirm('Abandonner ce rendez-vous ?\nLes photos, notes et relevés déjà envoyés restent dans le chantier. Aucun devis ne sera préparé.')) return;
+  V.actif = false;
+  ecrireJson('rdv-en-cours', null);
+  ouvrirOnglet('accueil');
+  toast('Rendez-vous abandonné', 'ok');
+}
+
+// Accueil : un rendez-vous commencé se reprend par le bouton du haut.
+function majBoutonRdv() {
+  const rdv = lireJson('rdv-en-cours', null);
+  const enCours = !!rdv?.actif;
+  const b = $('#btn-rdv');
+  b.querySelector('.titre').textContent = enCours ? 'Reprendre le rendez-vous' : 'Rendez-vous client';
+  b.querySelector('.sous-titre').textContent = enCours
+    ? `${rdv.nom || rdv.chantier || 'Client'} · commencé à ${new Date(rdv.debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    : 'Client, photos, mesures, notes : tout pour le devis';
+}
 
 function demarrerRdv(ev = null) {
   const enCours = lireJson('rdv-en-cours', null);
@@ -4739,6 +4761,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#rdv-mesures').onclick = mesuresRdv;
   $('#rdv-micro').onclick = dicterRdv;
   $('#rdv-terminer').onclick = terminerRdv;
+  $('#rdv-abandonner').onclick = abandonnerRdv;
   $('#releve-nouveau').onclick = nouveauReleve;
   $('#releve-envoyer').onclick = creerFeuille;
   $('#feuille-retour').onclick = () => afficher('releve');
