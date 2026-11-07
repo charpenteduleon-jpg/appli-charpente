@@ -829,3 +829,14 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 #rdv-travaux { margin-bottom: 6px; }
 .releve-resume { font-size: 14px; line-height: 1.35; }
 #agenda-liste li.cliquable { cursor: pointer; }
+
+/* 1.14 : zone de travaux (une partie du bâtiment seulement) ; l'interrupteur reprend le style existant. */
+.ligne-zone { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.ligne-zone strong { display: block; font-size: 16px; }
+.ligne-zone small { display: block; color: var(--texte-doux); font-size: 13px; margin-top: 2px; }
+.ligne-zone .interrupteur input:checked + span { background: #e8833a; }
+#zone-champs { margin-top: 10px; }
+#zone-champs .champ { margin: 6px 0; }
+#zone-champs input, #zone-champs select { padding: 9px 10px; }
+.resultats li.zone { color: #c0611d; font-weight: 700; }
+.resultats li b.discret { color: var(--texte-doux); font-weight: 500; }

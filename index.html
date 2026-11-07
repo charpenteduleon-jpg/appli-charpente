@@ -433,6 +433,22 @@
         <h2>Métré</h2>
         <ul id="releve-liste" class="resultats"></ul>
       </section>
+      <section class="carte" id="zone-carte">
+        <label class="ligne-zone" for="zone-actif">
+          <span><strong>🎯 Seulement une partie du bâtiment</strong><small>Le reste est dessiné en gris et n'est pas compté.</small></span>
+          <span class="interrupteur"><input type="checkbox" id="zone-actif"><span></span></span></label>
+        <div id="zone-champs" class="cache">
+          <div class="champ"><label for="zone-depuis">Mesuré au pied du mur, depuis</label>
+            <select id="zone-depuis"><option value="gauche">le coin gauche</option><option value="droite">le coin droit</option></select></div>
+          <div class="deux-champs">
+            <div class="champ"><label for="zone-de">De (m)</label><input id="zone-de" type="text" inputmode="decimal" autocomplete="off" placeholder="0 = le coin"></div>
+            <div class="champ"><label for="zone-a">À (m)</label><input id="zone-a" type="text" inputmode="decimal" autocomplete="off" placeholder="vide = le bout"></div>
+            <div class="champ"><label for="zone-bas">Hauteur, depuis (m)</label><input id="zone-bas" type="text" inputmode="decimal" autocomplete="off" placeholder="0 = le sol"></div>
+            <div class="champ"><label for="zone-haut">Jusqu'à (m)</label><input id="zone-haut" type="text" inputmode="decimal" autocomplete="off" placeholder="vide = en haut"></div>
+          </div>
+          <p id="zone-resume" class="releve-aide"></p>
+        </div>
+      </section>
       <section class="carte">
         <h2>Quantitatif</h2>
         <select id="releve-ouvrage" aria-label="Type d'ouvrage">

@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1706,10 +1706,17 @@ function calepinageBac(p, usage) {
     const s = echelleReleve();
     const surf = R.elements.find((e) => e.type === 'surface');
     if (!s || !surf) return [];
-    const pts = surf.pts.map((q) => versM(q, s));
+    // Zone de travaux : seule la partie dans la zone est calepinée ; les angles ne comptent que sur un vrai coin du bâtiment.
+    const r = rectZone(s);
+    const pts = ptsZone(surf, s, r);
+    if (pts.length < 3) return [['Calepinage', 'la zone de travaux ne touche pas la façade']];
     const x0 = Math.min(...pts.map((q) => q.x)), x1 = Math.max(...pts.map((q) => q.x)), sol = Math.max(...pts.map((q) => q.y));
-    const portes = R.elements.filter((e) => e.type === 'ouverture').map((e) => ({ ...etenduePied(e, s), h: e.projetH > 0 ? e.projetH : etenduePied(e, s).sol - Math.min(...e.pts.map((q) => versM(q, s).y)) }))
-      .filter((o) => Math.abs(o.sol - sol) < 0.25);
+    // Porte ou portail qui descend jusqu'en bas de la partie bardée : la plaque s'arrête au linteau.
+    const portes = R.elements.filter((e) => e.type === 'ouverture').map((e) => {
+      const pied = etenduePied(e, s);
+      const linteau = e.projetH > 0 ? pied.sol - e.projetH : Math.min(...e.pts.map((q) => versM(q, s).y));
+      return { ...pied, linteau };
+    }).filter((o) => o.sol > sol - 0.25);
     const longueurs = [];
     for (let xa = x0; xa < x1 - 0.02; xa += u) {
       const xb = Math.min(xa + u, x1);
@@ -1717,14 +1724,18 @@ function calepinageBac(p, usage) {
       const haut = Math.min(...xs.map((x) => hautSurface(pts, Math.min(Math.max(x, x0 + 1e-6), x1 - 1e-6))));
       let l = sol - haut;
       const porte = portes.find((o) => o.x0 <= xa + 0.05 && o.x1 >= xb - 0.05);
-      if (porte) l -= porte.h;
+      if (porte) l -= Math.max(0, sol - Math.max(porte.linteau, haut));
       if (l > 0.05) longueurs.push(l + (Number(p.marge) || 0) / 100);
     }
-    const angles = (sol - hautSurface(pts, x0 + 1e-6)) + (sol - hautSurface(pts, x1 - 1e-6));
+    const coinG = !r || r.xa <= r.X0 + 0.01, coinD = !r || r.xb >= r.X1 - 0.01;
+    const angles = (coinG ? sol - hautSurface(pts, x0 + 1e-6) : 0) + (coinD ? sol - hautSurface(pts, x1 - 1e-6) : 0);
     nb = longueurs.length;
     surface = longueurs.reduce((t, l) => t + l * u, 0);
-    lignes.push([`Façade : ${nb} plaques`, regrouperPlaques(longueurs)]);
-    lignes.push(['Bavette / closoir bas', `${fmtM(x1 - x0)} ml`], ['Angles (2 côtés)', `${fmtM(angles)} ml`]);
+    lignes.push([`${r ? 'Zone de travaux' : 'Façade'} : ${nb} plaques`, regrouperPlaques(longueurs)]);
+    lignes.push([r && !(r.yb >= r.sol - 0.01) ? 'Raccord bas (bavette)' : 'Bavette / closoir bas', `${fmtM(x1 - x0)} ml`]);
+    if (angles > 0) lignes.push([`Angles (${coinG && coinD ? '2 côtés' : '1 côté'})`, `${fmtM(angles)} ml`]);
+    if (r && r.ya > r.sommet + 0.01 && pts.some((q) => Math.abs(q.y - r.ya) < 0.001)) lignes.push(['Raccord haut (avec l\'existant)', `${fmtM(x1 - x0)} ml`]);
+    if (r && !(coinG && coinD)) lignes.push(['Raccord avec l\'existant', `${fmtM((coinG ? 0 : sol - hautSurface(pts, x0 + 1e-6)) + (coinD ? 0 : sol - hautSurface(pts, x1 - 1e-6)))} ml (profil de jonction)`]);
     if (Number(p.marge)) lignes.push(['Marge comprise dans les longueurs', `${p.marge} cm par plaque`]);
   }
   const ecl = Math.min(Number(p.eclairantes) || 0, nb);
@@ -1746,7 +1757,7 @@ function calepinageBac(p, usage) {
 const R = { mode: 'saisie', photo: '', img: null, elements: [], outil: 'cote', enCours: null, glisse: null, loupe: null, historique: [],
   ouvrage: 'bardage', params: {}, image: 0, feuilles: [], minuteur: null,
   echelleFixe: null, lineaires: [], toiture: 0, incomplet: [], alertes: [],
-  gabarit: { type: 'pignon', saisis: {}, ouvertures: [] } };
+  gabarit: { type: 'pignon', saisis: {}, ouvertures: [] }, zone: { actif: false, depuis: 'gauche', de: 0, a: 0, bas: 0, haut: 0 } };
 
 const fmtM = (n) => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
 const fmtNb = (n, d = 0) => n.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -1798,6 +1809,15 @@ const appliquerH = (h, p) => {
 };
 // Point de la photo → mètres sur le mur (perspective redressée, ou simple échelle).
 const versM = (p, s) => (s.H ? appliquerH(s.H, p) : { x: p.x * s.sx, y: p.y * s.sy });
+// L'inverse : un point du mur (en mètres) → sa place sur la photo (pour y dessiner la zone de travaux).
+function versPx(m, s) {
+  if (!s.H) return { x: m.x / s.sx, y: m.y / s.sy };
+  const [a, b, c, d, e, f, g, h] = s.H;
+  // Inverse de la matrice 3 × 3 [[a b c] [d e f] [g h 1]] (comatrice).
+  const A = e - f * h, B = c * h - b, C = b * f - c * e, D = f * g - d, E = a - c * g, F = c * d - a * f, G = d * h - e * g, Hh = b * g - a * h, I = a * e - b * d;
+  const w = G * m.x + Hh * m.y + I;
+  return { x: (A * m.x + B * m.y + C) / w, y: (D * m.x + E * m.y + F) / w };
+}
 
 function echellePerspective() {
   const rep = R.analyse?.repere;
@@ -1887,31 +1907,88 @@ function etenduePied(e, s) {
   const xs = m.map((p) => p.x), ys = m.map((p) => p.y);
   return { x0: Math.min(...xs), x1: Math.max(...xs), sol: Math.max(...ys) };
 }
-const aireAff = (e, s) => (e.type === 'ouverture' ? aireOuverture(e, s) : aireM2(e.pts, s));
-const aireOuverture = (e, s) => {
-  if (!(e.projetH > 0)) return aireM2(e.pts, s);
-  const { x0, x1 } = etenduePied(e, s);
-  return Math.min(aireM2(e.pts, s), (x1 - x0) * e.projetH);
+// ---------- Zone de travaux : une partie du mur seulement ----------
+// Le bâtiment entier reste dessiné ; seules les surfaces dans la zone comptent dans le métré et les quantités.
+// Les distances se prennent au pied du mur depuis le coin (gauche ou droit), les hauteurs depuis le sol.
+const zoneVide = () => ({ actif: false, depuis: 'gauche', de: 0, a: 0, bas: 0, haut: 0 });
+function rectZone(s) {
+  const z = R.zone;
+  if (!z?.actif || !s) return null;
+  const pts = R.elements.filter((e) => e.type === 'surface').flatMap((e) => e.pts.map((p) => versM(p, s)));
+  if (!pts.length) return null;
+  const X0 = Math.min(...pts.map((p) => p.x)), X1 = Math.max(...pts.map((p) => p.x));
+  const sol = Math.max(...pts.map((p) => p.y)), sommet = Math.min(...pts.map((p) => p.y));
+  const L = X1 - X0;
+  const de = Math.min(Math.max(Number(z.de) || 0, 0), L), a = Number(z.a) > 0 ? Math.min(Number(z.a), L) : L;
+  if (a - de < 0.01) return null;
+  const [xa, xb] = z.depuis === 'droite' ? [X1 - a, X1 - de] : [X0 + de, X0 + a];
+  const yb = sol - Math.max(Number(z.bas) || 0, 0);
+  const ya = Number(z.haut) > 0 ? Math.max(sol - Number(z.haut), sommet) : sommet;
+  if (yb - ya < 0.01) return null;
+  return { xa, xb, ya, yb, X0, X1, sol, sommet, de, a, entiere: !(Number(z.bas) > 0) && !(Number(z.haut) > 0) };
+}
+// Découpe d'un polygone (en mètres) par un rectangle (Sutherland-Hodgman, bord par bord).
+function couperRect(pts, r) {
+  const bords = [[(p) => p.x >= r.xa, (p, q) => ({ x: r.xa, y: p.y + (q.y - p.y) * (r.xa - p.x) / (q.x - p.x) })],
+    [(p) => p.x <= r.xb, (p, q) => ({ x: r.xb, y: p.y + (q.y - p.y) * (r.xb - p.x) / (q.x - p.x) })],
+    [(p) => p.y >= r.ya, (p, q) => ({ x: p.x + (q.x - p.x) * (r.ya - p.y) / (q.y - p.y), y: r.ya })],
+    [(p) => p.y <= r.yb, (p, q) => ({ x: p.x + (q.x - p.x) * (r.yb - p.y) / (q.y - p.y), y: r.yb })]];
+  let sortie = pts;
+  for (const [dedans, inter] of bords) {
+    const entree = sortie;
+    sortie = [];
+    entree.forEach((q, i) => {
+      const p = entree[(i + entree.length - 1) % entree.length];
+      if (dedans(q)) { if (!dedans(p)) sortie.push(inter(p, q)); sortie.push(q); } else if (dedans(p)) sortie.push(inter(p, q));
+    });
+    if (!sortie.length) break;
+  }
+  return sortie;
+}
+const SANS_LIMITE = 1e6;
+const ptsZone = (e, s, r) => { const m = e.pts.map((p) => versM(p, s)); return r ? couperRect(m, r) : m; };
+const aireSurface = (e, s, r = rectZone(s)) => airePx(ptsZone(e, s, r));
+// Ouverture : ce qui est retiré (dans la zone) ; avec un projet, seulement la partie sous la nouvelle hauteur.
+const aireOuverture = (e, s, r = rectZone(s)) => {
+  let m = ptsZone(e, s, r);
+  if (e.projetH > 0) { const { sol } = etenduePied(e, s); m = couperRect(m, { xa: -SANS_LIMITE, xb: SANS_LIMITE, ya: sol - e.projetH, yb: SANS_LIMITE }); }
+  return airePx(m);
 };
+const aireOuvertureActuelle = (e, s, r = rectZone(s)) => airePx(ptsZone(e, s, r));
+const aireAff = (e, s) => (e.type === 'ouverture' ? aireOuverture(e, s) : aireSurface(e, s));
 const texteOuverture = (e, s) => (e.projetH > 0
-  ? `− ${fmtNb(aireOuverture(e, s), 2)} m² après travaux (aujourd'hui ${fmtNb(aireM2(e.pts, s), 2)})`
-  : `− ${fmtNb(aireM2(e.pts, s), 2)} m²`);
+  ? `− ${fmtNb(aireOuverture(e, s), 2)} m² après travaux (aujourd'hui ${fmtNb(aireOuvertureActuelle(e, s), 2)})`
+  : `− ${fmtNb(aireOuverture(e, s), 2)} m²`);
+// « de 0,00 à 6,00 m depuis la gauche, jusqu'à 3,00 m de haut · 6,00 × 3,00 m »
+function texteZone(r) {
+  if (!r) return '';
+  const z = R.zone;
+  const haut = Number(z.bas) > 0 || Number(z.haut) > 0
+    ? `, de ${fmtM(r.sol - r.yb)} à ${fmtM(r.sol - r.ya)} m de haut` : ', toute la hauteur';
+  return `de ${fmtM(r.de)} à ${fmtM(r.a)} m depuis le coin ${z.depuis === 'droite' ? 'droit' : 'gauche'}${haut} (${fmtM(r.xb - r.xa)} m de large)`;
+}
 
 function metreReleve(s = echelleReleve()) {
+  const r = rectZone(s);
   const cotes = R.elements.filter((e) => e.type === 'cote');
   const surfaces = R.elements.filter((e) => e.type === 'surface');
-  const ouvertures = R.elements.filter((e) => e.type === 'ouverture');
-  const brut = s ? surfaces.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
-  const deduit = s ? ouvertures.reduce((t, e) => t + aireOuverture(e, s), 0) : 0;
-  const gain = s ? ouvertures.filter((e) => e.projetH > 0).reduce((t, e) => t + aireM2(e.pts, s) - aireOuverture(e, s), 0) : 0;
-  return { cotes, surfaces, ouvertures, brut, deduit, gain, net: Math.max(0, brut - deduit), toiture: R.mode === 'saisie' ? R.toiture : 0 };
+  // Avec une zone, les ouvertures hors zone ne comptent pas.
+  const ouvertures = R.elements.filter((e) => e.type === 'ouverture' && (!r || aireOuvertureActuelle(e, s, r) > 0.005));
+  const brut = s ? surfaces.reduce((t, e) => t + aireSurface(e, s, r), 0) : 0;
+  const deduit = s ? ouvertures.reduce((t, e) => t + aireOuverture(e, s, r), 0) : 0;
+  const gain = s ? ouvertures.filter((e) => e.projetH > 0).reduce((t, e) => t + aireOuvertureActuelle(e, s, r) - aireOuverture(e, s, r), 0) : 0;
+  const entier = r ? surfaces.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
+  return { cotes, surfaces, ouvertures, brut, deduit, gain, net: Math.max(0, brut - deduit), toiture: R.mode === 'saisie' ? R.toiture : 0, zone: r, entier };
 }
 
 function quantitesReleve(m) {
   const p = { ...Object.fromEntries((OUVRAGES[R.ouvrage] || []).map(([k, , v]) => [k, v])), ...(R.params[R.ouvrage] || {}) };
   const f = 1 + (Number(p.chute) || 0) / 100;
   const lignes = [];
-  if (R.ouvrage === 'bac') return calepinageBac(p, 'toiture');
+  if (R.ouvrage === 'bac') {
+    const t = calepinageBac(p, 'toiture');
+    return m.zone ? [['⚠ Zone de travaux', 'pour la toiture, tape seulement la longueur à refaire'], ...t] : t;
+  }
   if (R.ouvrage === 'bacmur') return m.brut ? calepinageBac(p, 'facade') : [];
   // Bardage : la surface nette du mur. Couverture et plaques : la surface tapée, sinon la toiture calculée.
   const net = R.ouvrage === 'bardage' || R.ouvrage === 'aucun' ? m.net : Number(p.surface) > 0 ? Number(p.surface) : m.toiture || m.net;
@@ -2205,6 +2282,8 @@ async function demarrerReleve(b) {
   R.coteVisee = null;
   R.photoEnvoyee = !!b.photoEnvoyee;
   R.depuisRdv = !!b.depuisRdv;
+  R.zone = { ...zoneVide(), ...(b.zone || {}) };
+  remplirCarteZone();
   $('#releve-facade').value = b.facade || '';
   if (R.mode === 'photo') {
     const c = $('#releve-canvas');
@@ -2252,7 +2331,7 @@ async function sauverBrouillonMaintenant() {
   try {
     const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
       chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
-      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value };
+      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value, zone: R.zone };
     await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(b)));
     try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
   } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
@@ -2297,6 +2376,7 @@ function nouveauReleve() {
   R.img = null;
   R.elements = [];
   R.gabarit = { type: 'pignon', saisis: {}, ouvertures: [] };
+  R.zone = zoneVide();
   R.analyse = null;
   $('#releve-facade').value = '';
   brouillonEffacer();
@@ -2615,12 +2695,13 @@ function majSaisie(sauver = true) {
         el('b', {}, `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}`)));
     }
     if (m.gain > 0) lignes.push(el('li', {}, el('span', {}, 'Bardage en plus', el('small', {}, ' ouvertures réduites')), el('b', {}, `+ ${fmtNb(m.gain, 2)} m²`)));
-    if (m.ouvertures.length) lignes.push(el('li', { class: 'total' }, el('span', {}, m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+    if (m.zone) lignes.push(...lignesZoneListe(m));
+    if (m.ouvertures.length || m.zone) lignes.push(el('li', { class: 'total' }, el('span', {}, m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
     if (m.toiture) lignes.push(el('li', {}, el('span', {}, 'Surface de toiture'), el('b', {}, `${fmtNb(m.toiture, 2)} m²`)));
     for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a), el('b', {}, b)));
   }
   $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Les surfaces s\'afficheront dès que les mesures seront complètes.')]));
-  if (R.incomplet.length) $('#releve-quantites').replaceChildren(el('li', { class: 'vide' }, 'Complète les mesures pour avoir les quantités.'));
+  if (R.incomplet.length) { majCarteZone(); $('#releve-quantites').replaceChildren(el('li', { class: 'vide' }, 'Complète les mesures pour avoir les quantités.')); }
   else dessinerQuantites(m, 'Pas de quantité pour l\'instant.');
   $('#releve-envoyer').disabled = !!R.incomplet.length;
   if (sauver) sauverBrouillonReleve();
@@ -2636,7 +2717,28 @@ function dessinerReleveSur(ctx, ep, s) {
     const pe = pointEtiquette(e);
     // Ouvertures : petite étiquette (surface seule), pour ne pas cacher la photo.
     if (s && e.type === 'ouverture') etiquette(ctx, `− ${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' (projet)' : ''}`, pe.x, pe.y, ep * 0.5, '#ff9f97');
-    else if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireM2(e.pts, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
+    else if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireAff(e, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
+  }
+  // Zone de travaux sur la photo : cadre orange (redressé si la photo est de biais).
+  const r = rectZone(s);
+  if (r) {
+    const coins = [[r.xa, r.yb], [r.xb, r.yb], [r.xb, r.ya], [r.xa, r.ya]].map(([x, y]) => versPx({ x, y }, s));
+    ctx.save();
+    ctx.beginPath();
+    coins.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,159,10,.18)';
+    ctx.fill();
+    ctx.strokeStyle = '#ff9f0a';
+    ctx.lineWidth = ep * 1.2;
+    ctx.setLineDash([ep * 4, ep * 2]);
+    ctx.shadowColor = 'rgba(0,0,0,.5)';
+    ctx.shadowBlur = ep;
+    ctx.stroke();
+    ctx.restore();
+    // Étiquette en haut de la zone, à l'intérieur (les cotes de largeur sont en général en bas).
+    const haut = { x: (coins[2].x + coins[3].x) / 2, y: (coins[2].y + coins[3].y) / 2 };
+    etiquette(ctx, `Zone de travaux · ${fmtM(r.xb - r.xa)} m`, haut.x, haut.y + ep * 6, ep * 0.8, '#ffd60a');
   }
   for (const e of R.elements) {
     if (e.type !== 'cote') continue;
@@ -2954,6 +3056,7 @@ function majReleve(sauver = true) {
     lignes.push(li);
   }
   if (s && m.gain > 0) lignes.push(el('li', {}, el('span', {}, 'Bardage en plus', el('small', {}, ' ouvertures réduites')), el('b', {}, `+ ${fmtNb(m.gain, 2)} m²`)));
+  if (s && m.zone) lignes.push(...lignesZoneListe(m));
   if (s && m.surfaces.length) lignes.push(el('li', { class: 'total' }, el('span', {}, m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
   for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a, el('small', {}, ' calculé')), el('b', {}, b)));
   $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Pas encore de mesure.')]));
@@ -2963,7 +3066,34 @@ function majReleve(sauver = true) {
   if (sauver) sauverBrouillonReleve();
 }
 
+// Lignes du métré quand seule une partie du bâtiment est à faire.
+function lignesZoneListe(m) {
+  return [el('li', { class: 'zone' }, el('span', {}, '🎯 Zone de travaux', el('small', {}, ` ${fmtM(m.zone.xb - m.zone.xa)} × ${fmtM(m.zone.yb - m.zone.ya)} m max`)), el('b', {}, `${fmtNb(m.brut, 2)} m²`)),
+    el('li', {}, el('span', {}, 'Bâtiment entier', el('small', {}, ' pour info, non compté')), el('b', { class: 'discret' }, `${fmtNb(m.entier, 2)} m²`))];
+}
+
+// Carte « Zone de travaux » : les champs suivent R.zone ; le résumé dit ce qui est compté.
+function majCarteZone(s = echelleReleve()) {
+  const z = R.zone;
+  $('#zone-actif').checked = !!z.actif;
+  $('#zone-champs').classList.toggle('cache', !z.actif);
+  const r = rectZone(s);
+  const resume = $('#zone-resume');
+  if (!z.actif) return;
+  if (!s) { resume.className = 'releve-aide'; resume.textContent = 'La zone se calculera dès que l\'échelle sera connue.'; return; }
+  if (!r) { resume.className = 'releve-aide'; resume.textContent = 'Indique au moins « À » (la fin de la partie à faire), ou une hauteur.'; return; }
+  resume.className = 'releve-aide ok';
+  resume.textContent = `✓ Comptée : ${texteZone(r)}. Le reste du bâtiment est grisé et n'entre pas dans les quantités.`;
+}
+function remplirCarteZone() {
+  const z = R.zone;
+  $('#zone-depuis').value = z.depuis || 'gauche';
+  for (const k of ['de', 'a', 'bas', 'haut']) $(`#zone-${k}`).value = Number(z[k]) > 0 ? fmtM(Number(z[k])) : '';
+  majCarteZone();
+}
+
 function dessinerQuantites(m, vide) {
+  majCarteZone();
   const q = quantitesReleve(m);
   $('#releve-quantites').replaceChildren(...(q.length
     ? q.map(([l, v]) => el('li', {}, el('span', {}, l), el('b', {}, v)))
@@ -2993,10 +3123,11 @@ function texteMetre() {
   const facade = $('#releve-facade').value.trim();
   const l = [`Relevé${chantier ? ` – ${chantier}` : ''}${facade ? ` – ${facade}` : ''} – ${new Date().toLocaleDateString('fr-FR')}`, ''];
   m.cotes.forEach((e, i) => l.push(`${e.nom || `Cote ${i + 1}`} : ${texteValeur(e, s).replace(' ✓', '')} m${e.valeur > 0 ? ' (mesurée)' : e.suppose ? ' (supposée)' : R.mode === 'saisie' ? ' (calculée)' : ' (sur photo)'}`));
-  for (const e of m.surfaces) l.push(`${nomElement(e)} : ${fmtNb(aireM2(e.pts, s), 2)} m²`);
+  for (const e of m.surfaces) l.push(`${nomElement(e)} : ${fmtNb(aireSurface(e, s), 2)} m²${m.zone ? ' (dans la zone)' : ''}`);
   for (const e of m.ouvertures) l.push(`${nomElement(e)} : ${texteOuverture(e, s)}${e.projetH > 0 ? ` – nouvelle hauteur ${fmtM(e.projetH)} m (projet du client)` : ''}`);
   if (m.gain > 0) l.push(`Bardage en plus (ouvertures réduites) : ${fmtNb(m.gain, 2)} m²`);
-  if (m.surfaces.length) l.push(`Surface nette${m.gain > 0 ? ' après travaux' : ''} : ${fmtNb(m.net, 2)} m²`);
+  if (m.zone) l.push(`Zone de travaux (seule partie comptée) : ${texteZone(m.zone)} = ${fmtNb(m.brut, 2)} m² · bâtiment entier ${fmtNb(m.entier, 2)} m² pour info`);
+  if (m.surfaces.length) l.push(`Surface nette${m.zone ? ' de la zone' : ''}${m.gain > 0 ? ' après travaux' : ''} : ${fmtNb(m.net, 2)} m²`);
   if (m.toiture) l.push(`Surface de toiture : ${fmtNb(m.toiture, 2)} m²`);
   for (const [a, b] of R.lineaires) l.push(`${a} : ${b}`);
   if (R.mode === 'saisie') for (const a of R.alertes) l.push(`⚠ ${a}`);
@@ -3102,11 +3233,16 @@ function pageEsquisse(s, m) {
   };
   const ligne = (a, b, gras = false) => {
     if (y > H - 130) return;
+    ctx.font = `700 28px -apple-system, "Segoe UI", sans-serif`;
+    const largeurB = ctx.measureText(b).width;
     ctx.fillStyle = '#1c1c1e'; ctx.font = `${gras ? 700 : 400} 28px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'left';
+    // Valeur longue (ex. la référence du bac) : elle passe sur la ligne d'en dessous au lieu de chevaucher le libellé.
+    const surDeuxLignes = ctx.measureText(a).width + largeurB + 30 > XD - X;
     let texteA = a;
-    while (ctx.measureText(texteA).width > 470 && texteA.length > 4) texteA = texteA.slice(0, -2);
+    while (ctx.measureText(texteA).width > (surDeuxLignes ? XD - X : 470) && texteA.length > 4) texteA = texteA.slice(0, -2);
     ctx.fillText(texteA === a ? a : `${texteA}…`, X, y);
-    ctx.font = `700 28px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'right'; ctx.fillStyle = '#23376d';
+    if (surDeuxLignes) y += 38;
+    ctx.font = `700 ${largeurB > XD - X ? 22 : 28}px -apple-system, "Segoe UI", sans-serif`; ctx.textAlign = 'right'; ctx.fillStyle = '#23376d';
     ctx.fillText(b, XD, y); y += 44;
   };
   titre('Cotes');
@@ -3115,7 +3251,14 @@ function pageEsquisse(s, m) {
     y += 16; titre('Surfaces');
     for (const e of [...m.surfaces, ...m.ouvertures]) ligne(nomElement(e), `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}`);
     if (m.gain > 0) ligne('Bardage en plus (ouvertures réduites)', `+ ${fmtNb(m.gain, 2)} m²`);
-    if (m.surfaces.length) ligne(m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette', `${fmtNb(m.net, 2)} m²`, true);
+    if (m.zone) ligne('Bâtiment entier (non compté)', `${fmtNb(m.entier, 2)} m²`);
+    if (m.surfaces.length) ligne(`Surface nette${m.zone ? ' de la zone' : ''}${m.gain > 0 ? ' après travaux' : ''}`, `${fmtNb(m.net, 2)} m²`, true);
+  }
+  if (m.zone) {
+    y += 16; titre('Partie traitée');
+    ligne('Largeur', `${fmtM(m.zone.xb - m.zone.xa)} m`);
+    ligne(`Depuis le coin ${R.zone.depuis === 'droite' ? 'droit' : 'gauche'}`, `${fmtM(m.zone.de)} → ${fmtM(m.zone.a)} m`);
+    ligne('Hauteur depuis le sol', `${fmtM(m.zone.sol - m.zone.yb)} → ${fmtM(m.zone.sol - m.zone.ya)} m`);
   }
   if (R.lineaires.length || m.toiture) {
     y += 16; titre(R.mode === 'saisie' ? 'Toiture et linéaires' : 'Calculé d\'après la photo');
@@ -3184,8 +3327,52 @@ function dessinerPlan(ctx, zone, s, f = 1) {
       }
     }
   }
+  // Zone de travaux : le reste du bâtiment est voilé de blanc, la zone entourée en orange avec ses mesures.
+  const r = rectZone(s);
+  if (r) {
+    const a = P2(r.xa, r.ya), b = P2(r.xb, r.yb);
+    ctx.save();
+    ctx.beginPath();
+    for (const e of R.elements.filter((x) => x.type === 'surface')) {
+      e.pts.map(P).forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+    }
+    ctx.clip();
+    ctx.beginPath();
+    ctx.rect(zone.x, zone.y, zone.w, zone.h);
+    ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.fillStyle = 'rgba(255,255,255,.72)';
+    ctx.fill('evenodd');
+    ctx.fillStyle = 'rgba(232,131,58,.10)';
+    ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = '#e8833a';
+    ctx.lineWidth = 6 * f;
+    ctx.setLineDash([22 * f, 10 * f]);
+    ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    ctx.setLineDash([]);
+    const aireZone = R.elements.filter((x) => x.type === 'surface').reduce((t, e) => t + aireSurface(e, s, r), 0);
+    const texte = `Zone de travaux · ${fmtM(r.xb - r.xa)} m · ${fmtNb(aireZone, 2)} m²`;
+    ctx.font = `800 ${26 * f}px -apple-system, "Segoe UI", sans-serif`;
+    const l = ctx.measureText(texte).width + 24 * f;
+    // Pastille juste au-dessus de la zone (dans la partie grisée), sinon juste dedans si la zone touche le haut.
+    const cx = Math.min(Math.max((a.x + b.x) / 2, zone.x + l / 2), zone.x + zone.w - l / 2);
+    const cy = a.y - 30 * f > zone.y + 24 * f ? a.y - 30 * f : a.y + 30 * f;
+    ctx.fillStyle = '#e8833a';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx - l / 2, cy - 20 * f, l, 40 * f, 20 * f); else ctx.rect(cx - l / 2, cy - 20 * f, l, 40 * f);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(texte, cx, cy + 1);
+    ctx.restore();
+  }
+
   const complet = !R.incomplet.length;
-  for (const e of R.elements.filter((x) => x.type !== 'cote')) {
+  // Avec une zone, la surface est écrite dans la pastille de la zone : pas d'étiquette dans la partie grisée.
+  for (const e of R.elements.filter((x) => x.type !== 'cote' && !(r && x.type === 'surface'))) {
     const cc = P(pointEtiquette(e));
     ctx.fillStyle = e.type === 'ouverture' ? '#a33a2f' : '#23376d';
     ctx.font = `600 ${28 * f}px -apple-system, "Segoe UI", sans-serif`;
@@ -4402,6 +4589,30 @@ document.addEventListener('DOMContentLoaded', () => {
       R.ouvrage = ev.target.value;
       dessinerParamsReleve();
       majReleve();
+    };
+  }
+  // Zone de travaux : seulement une partie du bâtiment.
+  $('#zone-actif').onchange = (ev) => {
+    R.zone.actif = ev.target.checked;
+    if (R.zone.actif) setTimeout(() => $('#zone-a').focus(), 50);
+    if (R.mode === 'photo') redessinerReleve();
+    majReleve();
+  };
+  $('#zone-depuis').onchange = (ev) => { R.zone.depuis = ev.target.value; if (R.mode === 'photo') redessinerReleve(); majReleve(); };
+  for (const k of ['de', 'a', 'bas', 'haut']) {
+    const champ = $(`#zone-${k}`);
+    champ.oninput = () => {
+      const v = lireMesure(champ.value);
+      if (v == null) return;
+      R.zone[k] = v;
+      if (R.mode === 'photo') redessinerReleve();
+      majReleve();
+    };
+    champ.onkeydown = (ev) => { // Entrée = case suivante (télémètre en mode clavier)
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const ordre = ['de', 'a', 'bas', 'haut'], i = ordre.indexOf(k);
+      if (i < 3) $(`#zone-${ordre[i + 1]}`).focus(); else champ.blur();
     };
   }
   $('#releve-chantier').onchange = () => { envoyerPhotoReleve(); sauverBrouillonReleve(); };
