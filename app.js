@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.11.0';
+const VERSION = '1.12.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1792,13 +1792,31 @@ const texteValeur = (e, s) => { const v = valeurCote(e, s); return v == null ? '
 const texteCote = (e, s) => (e.inconnu ? '?' : e.valeur > 0 ? `${fmtM(e.valeur)} ✓` : s ? `${R.mode === 'saisie' ? '' : '≈ '}${fmtM(longueurM(e.a, e.b, s))}` : '? m');
 const nomElement = (e) => e.nom || (e.type === 'cote' ? 'Cote' : e.type === 'ouverture' ? 'Ouverture' : 'Surface');
 
+// Ouverture modifiée par le projet (ex. bardage descendu plus bas) : après travaux, il ne reste qu'un rectangle de
+// même largeur, posé au sol, de la nouvelle hauteur. Le bardage gagne la différence.
+function etenduePied(e, s) {
+  const m = e.pts.map((p) => versM(p, s));
+  const xs = m.map((p) => p.x), ys = m.map((p) => p.y);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), sol: Math.max(...ys) };
+}
+const aireAff = (e, s) => (e.type === 'ouverture' ? aireOuverture(e, s) : aireM2(e.pts, s));
+const aireOuverture = (e, s) => {
+  if (!(e.projetH > 0)) return aireM2(e.pts, s);
+  const { x0, x1 } = etenduePied(e, s);
+  return Math.min(aireM2(e.pts, s), (x1 - x0) * e.projetH);
+};
+const texteOuverture = (e, s) => (e.projetH > 0
+  ? `− ${fmtNb(aireOuverture(e, s), 2)} m² après travaux (aujourd'hui ${fmtNb(aireM2(e.pts, s), 2)})`
+  : `− ${fmtNb(aireM2(e.pts, s), 2)} m²`);
+
 function metreReleve(s = echelleReleve()) {
   const cotes = R.elements.filter((e) => e.type === 'cote');
   const surfaces = R.elements.filter((e) => e.type === 'surface');
   const ouvertures = R.elements.filter((e) => e.type === 'ouverture');
   const brut = s ? surfaces.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
-  const deduit = s ? ouvertures.reduce((t, e) => t + aireM2(e.pts, s), 0) : 0;
-  return { cotes, surfaces, ouvertures, brut, deduit, net: Math.max(0, brut - deduit), toiture: R.mode === 'saisie' ? R.toiture : 0 };
+  const deduit = s ? ouvertures.reduce((t, e) => t + aireOuverture(e, s), 0) : 0;
+  const gain = s ? ouvertures.filter((e) => e.projetH > 0).reduce((t, e) => t + aireM2(e.pts, s) - aireOuverture(e, s), 0) : 0;
+  return { cotes, surfaces, ouvertures, brut, deduit, gain, net: Math.max(0, brut - deduit), toiture: R.mode === 'saisie' ? R.toiture : 0 };
 }
 
 function quantitesReleve(m) {
@@ -1851,10 +1869,44 @@ async function photoReleve(fichier, mode = 'photo') {
       sauverBrouillonReleve();
       return;
     }
-    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv });
+    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv,
+      facade: $('#releve-facade').value });
+    nommerFacadeParBoussole();
     envoyerPhotoReleve();
     analyserPhotoReleve();
   } catch (e) { toast(e.message, 'erreur'); }
+}
+
+// ---------- Boussole : quelle façade est photographiée ? ----------
+// Le téléphone vise la façade : s'il pointe vers le nord, on photographie la façade sud (celle qui regarde le sud).
+const boussole = { cap: null, quand: 0, active: false };
+function activerBoussole() {
+  if (boussole.active) return;
+  const ecouter = () => {
+    boussole.active = true;
+    window.addEventListener('deviceorientation', (e) => {
+      const cap = typeof e.webkitCompassHeading === 'number' ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? (360 - e.alpha) % 360 : null);
+      if (cap != null && (e.webkitCompassAccuracy == null || e.webkitCompassAccuracy >= 0)) { boussole.cap = cap; boussole.quand = Date.now(); }
+    });
+  };
+  // iPhone : l'autorisation « Mouvement et orientation » doit être demandée pendant le geste de l'utilisateur.
+  if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then((r) => { if (r === 'granted') ecouter(); }).catch(() => {});
+  } else if ('ondeviceorientation' in window) ecouter();
+}
+const DIRECTIONS = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
+function orientationFacade() {
+  if (boussole.cap == null || Date.now() - boussole.quand > 10000) return '';
+  const exposition = (boussole.cap + 180) % 360;
+  return `Façade ${DIRECTIONS[Math.round(exposition / 45) % 8]}`;
+}
+// Au retour de l'appareil photo, le téléphone vise encore la façade : on lit la boussole une seconde après.
+function nommerFacadeParBoussole() {
+  setTimeout(() => {
+    const nom = orientationFacade();
+    const champ = $('#releve-facade');
+    if (nom && !champ.value.trim()) { champ.value = nom; sauverBrouillonReleve(); toast(`🧭 ${nom} (d'après la boussole)`, 'ok'); }
+  }, 1200);
 }
 
 // ---------- Claude regarde la photo et propose les cotes à prendre (A, B, C…) ----------
@@ -2063,6 +2115,7 @@ async function demarrerReleve(b) {
   R.coteVisee = null;
   R.photoEnvoyee = !!b.photoEnvoyee;
   R.depuisRdv = !!b.depuisRdv;
+  $('#releve-facade').value = b.facade || '';
   if (R.mode === 'photo') {
     const c = $('#releve-canvas');
     c.width = R.img.width;
@@ -2109,7 +2162,7 @@ async function sauverBrouillonMaintenant() {
   try {
     const b = { mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit, analyse: R.analyse,
       chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
-      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv };
+      photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value };
     await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(b)));
     try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
   } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
@@ -2155,6 +2208,7 @@ function nouveauReleve() {
   R.elements = [];
   R.gabarit = { type: 'pignon', saisis: {}, ouvertures: [] };
   R.analyse = null;
+  $('#releve-facade').value = '';
   brouillonEffacer();
   ouvrirReleve($('#releve-chantier').value);
 }
@@ -2350,7 +2404,7 @@ function construireSaisie(sol) {
     if (libre) { l = h = Math.sqrt(s); }
     if (!l || !h) { manque.push(`les dimensions de « ${nom} »`); return; }
     const x = ov.x !== '' && ov.x != null && lireMesure(ov.x) != null ? lireMesure(ov.x) : (largeurTotale - l) / 2;
-    ouvertures.push({ nom, x, l, h, libre, lTape: lireMesure(ov.l) || 0, hTape: lireMesure(ov.h) || 0 });
+    ouvertures.push({ nom, x, l, h, libre, lTape: lireMesure(ov.l) || 0, hTape: lireMesure(ov.h) || 0, projetH: lireMesure(ov.p) || 0 });
   });
 
   // Passage en points (y inversé).
@@ -2362,7 +2416,7 @@ function construireSaisie(sol) {
       inconnu: v[c.cle] == null, suppose: o[c.cle] === 'supposé' });
   }
   for (const ov of ouvertures) {
-    els.push({ type: 'ouverture', nom: ov.nom, pts: [[ov.x, 0], [ov.x, ov.h], [ov.x + ov.l, ov.h], [ov.x + ov.l, 0]].map(P) });
+    els.push({ type: 'ouverture', nom: ov.nom, projetH: ov.projetH, pts: [[ov.x, 0], [ov.x, ov.h], [ov.x + ov.l, ov.h], [ov.x + ov.l, 0]].map(P) });
     if (!ov.libre) {
       els.push({ type: 'cote', nom: `${ov.nom} (largeur)`, court: true, a: P([ov.x, 0.35]), b: P([ov.x + ov.l, 0.35]), valeur: ov.lTape });
       els.push({ type: 'cote', nom: `${ov.nom} (hauteur)`, court: true, a: P([ov.x + 0.35, 0]), b: P([ov.x + 0.35, ov.h]), valeur: ov.hTape });
@@ -2411,7 +2465,8 @@ function dessinerOuvertures() {
       el('div', { class: 'ouverture-entete' }, nom,
         el('button', { class: 'lien', 'aria-label': 'Retirer', onclick: () => { g.ouvertures.splice(i, 1); dessinerOuvertures(); majReleve(); } }, '🗑️')),
       el('div', { class: 'deux-champs' }, champ('l', 'Largeur', 'ex. 5,70'), champ('h', 'Hauteur', 'ex. 3,15'),
-        champ('x', 'Depuis la gauche', 'centrée'), champ('s', 'ou surface (m²)', 'forme libre')));
+        champ('x', 'Depuis la gauche', 'centrée'), champ('s', 'ou surface (m²)', 'forme libre'),
+        champ('p', 'Hauteur après travaux', 'si elle change')));
   }));
 }
 
@@ -2464,9 +2519,10 @@ function majSaisie(sauver = true) {
   if (!R.incomplet.length) {
     for (const e of [...m.surfaces, ...m.ouvertures]) {
       lignes.push(el('li', {}, el('span', {}, nomElement(e), e.type === 'ouverture' ? el('small', {}, ' à déduire') : null),
-        el('b', {}, `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`)));
+        el('b', {}, `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}`)));
     }
-    if (m.ouvertures.length) lignes.push(el('li', { class: 'total' }, el('span', {}, 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+    if (m.gain > 0) lignes.push(el('li', {}, el('span', {}, 'Bardage en plus', el('small', {}, ' ouvertures réduites')), el('b', {}, `+ ${fmtNb(m.gain, 2)} m²`)));
+    if (m.ouvertures.length) lignes.push(el('li', { class: 'total' }, el('span', {}, m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
     if (m.toiture) lignes.push(el('li', {}, el('span', {}, 'Surface de toiture'), el('b', {}, `${fmtNb(m.toiture, 2)} m²`)));
     for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a), el('b', {}, b)));
   }
@@ -2486,7 +2542,7 @@ function dessinerReleveSur(ctx, ep, s) {
     tracerSurface(ctx, e.pts, e.type, ep, true);
     const pe = pointEtiquette(e);
     // Ouvertures : petite étiquette (surface seule), pour ne pas cacher la photo.
-    if (s && e.type === 'ouverture') etiquette(ctx, `− ${fmtNb(aireM2(e.pts, s), 2)} m²`, pe.x, pe.y, ep * 0.5, '#ff9f97');
+    if (s && e.type === 'ouverture') etiquette(ctx, `− ${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' (projet)' : ''}`, pe.x, pe.y, ep * 0.5, '#ff9f97');
     else if (s) etiquette(ctx, `${nomElement(e)} · ${fmtNb(aireM2(e.pts, s), 1)} m²`, pe.x, pe.y, ep * 0.8, e.type === 'ouverture' ? '#ff9f97' : '#cfe0ff');
   }
   for (const e of R.elements) {
@@ -2716,7 +2772,7 @@ function ouvrirSelection(e) {
   selectionReleve = e;
   const s = echelleReleve();
   const zone = $('#releve-selection');
-  const titre = e.type === 'cote' ? `${nomElement(e)} · ${texteCote(e, s)}` : `${nomElement(e)}${s ? ` · ${fmtNb(aireM2(e.pts, s), 2)} m²` : ''}`;
+  const titre = e.type === 'cote' ? `${nomElement(e)} · ${texteCote(e, s)}` : `${nomElement(e)}${s ? ` · ${e.type === 'ouverture' ? texteOuverture(e, s) : `${fmtNb(aireM2(e.pts, s), 2)} m²`}` : ''}`;
   const boutons = [];
   if (e.type === 'cote') {
     boutons.push(el('button', { class: 'btn-petit', onclick: () => {
@@ -2731,6 +2787,17 @@ function ouvrirSelection(e) {
       sauverHistorique(); e.type = e.type === 'ouverture' ? 'surface' : 'ouverture';
       e.nom = e.nom.replace(/^(Surface|Ouverture)/, e.type === 'ouverture' ? 'Ouverture' : 'Surface'); apresModif();
     } }, e.type === 'ouverture' ? '⇄ Compter' : '⇄ Déduire'));
+    // Le client veut changer l'ouverture (ex. bardage descendu plus bas) : nouvelle hauteur après travaux.
+    if (e.type === 'ouverture') {
+      boutons.push(el('button', { class: 'btn-petit', onclick: () => {
+        const t = prompt('Après travaux, quelle hauteur gardera cette ouverture (du sol, en m) ?\nEx. 2,50 si le bardage descend jusqu\'à 2,50 m du sol.\nLaisse vide si elle ne change pas.',
+          e.projetH ? String(e.projetH).replace('.', ',') : '');
+        if (t === null) return;
+        const v = lireMesure(t);
+        if (v === null) { toast('Hauteur illisible (ex. 2,50).', 'erreur'); return; }
+        sauverHistorique(); e.projetH = v || 0; apresModif();
+      } }, e.projetH > 0 ? `📐 Projet : ${fmtM(e.projetH)} m` : '📐 Après travaux'));
+    }
   }
   boutons.push(el('button', { class: 'btn-petit', onclick: () => {
     const t = prompt('Nom (ex. Faîtage, Pignon nord, Porte) :', e.nom || '');
@@ -2789,11 +2856,12 @@ function majReleve(sauver = true) {
   });
   for (const e of [...m.surfaces, ...m.ouvertures]) {
     const li = el('li', { class: 'cliquable' }, el('span', {}, nomElement(e), e.type === 'ouverture' ? el('small', {}, ' à déduire') : null),
-      el('b', {}, s ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²` : '?'));
+      el('b', {}, s ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}` : '?'));
     li.onclick = () => { choisirOutilReleve('modifier'); ouvrirSelection(e); };
     lignes.push(li);
   }
-  if (s && m.surfaces.length) lignes.push(el('li', { class: 'total' }, el('span', {}, 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
+  if (s && m.gain > 0) lignes.push(el('li', {}, el('span', {}, 'Bardage en plus', el('small', {}, ' ouvertures réduites')), el('b', {}, `+ ${fmtNb(m.gain, 2)} m²`)));
+  if (s && m.surfaces.length) lignes.push(el('li', { class: 'total' }, el('span', {}, m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette'), el('b', {}, `${fmtNb(m.net, 2)} m²`)));
   for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a, el('small', {}, ' calculé')), el('b', {}, b)));
   $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Pas encore de mesure.')]));
 
@@ -2827,10 +2895,13 @@ function texteMetre() {
   const s = echelleReleve();
   const m = metreReleve(s);
   const chantier = $('#releve-chantier').value;
-  const l = [`Relevé${chantier ? ` – ${chantier}` : ''} – ${new Date().toLocaleDateString('fr-FR')}`, ''];
+  const facade = $('#releve-facade').value.trim();
+  const l = [`Relevé${chantier ? ` – ${chantier}` : ''}${facade ? ` – ${facade}` : ''} – ${new Date().toLocaleDateString('fr-FR')}`, ''];
   m.cotes.forEach((e, i) => l.push(`${e.nom || `Cote ${i + 1}`} : ${texteValeur(e, s).replace(' ✓', '')} m${e.valeur > 0 ? ' (mesurée)' : e.suppose ? ' (supposée)' : R.mode === 'saisie' ? ' (calculée)' : ' (sur photo)'}`));
-  for (const e of [...m.surfaces, ...m.ouvertures]) l.push(`${nomElement(e)} : ${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
-  if (m.surfaces.length) l.push(`Surface nette : ${fmtNb(m.net, 2)} m²`);
+  for (const e of m.surfaces) l.push(`${nomElement(e)} : ${fmtNb(aireM2(e.pts, s), 2)} m²`);
+  for (const e of m.ouvertures) l.push(`${nomElement(e)} : ${texteOuverture(e, s)}${e.projetH > 0 ? ` – nouvelle hauteur ${fmtM(e.projetH)} m (projet du client)` : ''}`);
+  if (m.gain > 0) l.push(`Bardage en plus (ouvertures réduites) : ${fmtNb(m.gain, 2)} m²`);
+  if (m.surfaces.length) l.push(`Surface nette${m.gain > 0 ? ' après travaux' : ''} : ${fmtNb(m.net, 2)} m²`);
   if (m.toiture) l.push(`Surface de toiture : ${fmtNb(m.toiture, 2)} m²`);
   for (const [a, b] of R.lineaires) l.push(`${a} : ${b}`);
   if (R.mode === 'saisie') for (const a of R.alertes) l.push(`⚠ ${a}`);
@@ -2921,7 +2992,8 @@ function pageEsquisse(s, m) {
   const ctx = c.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
   const chantier = $('#releve-chantier').value;
-  bandeauFeuille(ctx, W, `Relevé de mesures${chantier ? ` · ${chantier}` : ''}`);
+  const facade = $('#releve-facade').value.trim();
+  bandeauFeuille(ctx, W, `Relevé de mesures${chantier ? ` · ${chantier}` : ''}${facade ? ` · ${facade}` : ''}`);
 
   dessinerPlan(ctx, { x: 60, y: 200, w: 1500, h: 1380 }, s, 1);
 
@@ -2946,8 +3018,9 @@ function pageEsquisse(s, m) {
   m.cotes.forEach((e, i) => ligne(`${e.lettre ? `${e.lettre} · ` : ''}${e.nom || `Cote ${i + 1}`}${e.valeur > 0 ? ' ✓' : e.suppose ? ' (supposé)' : ''}`, `${texteValeur(e, s).replace(' ✓', '').replace('≈ ', '')} m`));
   if (m.surfaces.length || m.ouvertures.length) {
     y += 16; titre('Surfaces');
-    for (const e of [...m.surfaces, ...m.ouvertures]) ligne(nomElement(e), `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²`);
-    if (m.surfaces.length) ligne('Surface nette', `${fmtNb(m.net, 2)} m²`, true);
+    for (const e of [...m.surfaces, ...m.ouvertures]) ligne(nomElement(e), `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}`);
+    if (m.gain > 0) ligne('Bardage en plus (ouvertures réduites)', `+ ${fmtNb(m.gain, 2)} m²`);
+    if (m.surfaces.length) ligne(m.gain > 0 ? 'Surface nette après travaux' : 'Surface nette', `${fmtNb(m.net, 2)} m²`, true);
   }
   if (R.lineaires.length || m.toiture) {
     y += 16; titre(R.mode === 'saisie' ? 'Toiture et linéaires' : 'Calculé d\'après la photo');
@@ -2975,6 +3048,7 @@ function dessinerPlan(ctx, zone, s, f = 1) {
   const k = Math.min((zone.w - 130 * f) / Math.max(maxX - minX, 0.01), (zone.h - 90 * f) / Math.max(maxY - minY, 0.01));
   const ox = zone.x + (zone.w - (maxX - minX) * k) / 2, oy = zone.y + (zone.h - (maxY - minY) * k) / 2;
   const P = (p) => { const m = versM(p, s); return { x: ox + (m.x - minX) * k, y: oy + (m.y - minY) * k }; };
+  const P2 = (xm, ym) => ({ x: ox + (xm - minX) * k, y: oy + (ym - minY) * k }); // point déjà en mètres
 
   const motif = motifBardage(ctx);
   for (const type of ['surface', 'ouverture']) {
@@ -2990,6 +3064,29 @@ function dessinerPlan(ctx, zone, s, f = 1) {
       if (type === 'ouverture') ctx.setLineDash([16 * f, 10 * f]);
       ctx.stroke();
       ctx.restore();
+      // Projet : la partie de l'ouverture qui sera bardée (au-dessus de la nouvelle hauteur) est hachurée en vert.
+      if (type === 'ouverture' && e.projetH > 0) {
+        const { x0, x1, sol } = etenduePied(e, s);
+        const a = P2(x0, sol - e.projetH), b = P2(x1, sol);
+        ctx.save();
+        ctx.beginPath();
+        e.pts.map(P).forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.closePath();
+        ctx.clip();
+        ctx.fillStyle = 'rgba(31,157,85,.18)';
+        ctx.fillRect(a.x - 2, 0, b.x - a.x + 4, a.y);
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = '#1f9d55';
+        ctx.lineWidth = 4 * f;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, a.y); ctx.stroke();
+        ctx.fillStyle = '#1f9d55';
+        ctx.font = `700 ${22 * f}px -apple-system, "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`bardage jusqu'à ${fmtM(e.projetH)} m du sol`, (a.x + b.x) / 2, a.y - 6 * f);
+        ctx.restore();
+      }
     }
   }
   const complet = !R.incomplet.length;
@@ -3004,12 +3101,12 @@ function dessinerPlan(ctx, zone, s, f = 1) {
     const largeurPx = (Math.max(...xs) - Math.min(...xs)) * k;
     if (e.type === 'ouverture' && largeurPx < ctx.measureText(nomElement(e)).width + 10 * f) {
       ctx.font = `400 ${22 * f}px -apple-system, "Segoe UI", sans-serif`;
-      ctx.fillText(complet && !e.inconnu ? `− ${fmtNb(aireM2(e.pts, s), 2)}` : '?', cc.x, cc.y);
+      ctx.fillText(complet && !e.inconnu ? `− ${fmtNb(aireAff(e, s), 2)}` : '?', cc.x, cc.y);
       continue;
     }
     ctx.fillText(nomElement(e), cc.x, cc.y - 18 * f);
     ctx.font = `400 ${26 * f}px -apple-system, "Segoe UI", sans-serif`;
-    ctx.fillText(complet && !e.inconnu ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireM2(e.pts, s), 2)} m²` : '? m²', cc.x, cc.y + 18 * f);
+    ctx.fillText(complet && !e.inconnu ? `${e.type === 'ouverture' ? '− ' : ''}${fmtNb(aireAff(e, s), 2)} m²${e.projetH > 0 ? ' après travaux' : ''}` : '? m²', cc.x, cc.y + 18 * f);
   }
   for (const e of R.elements.filter((x) => x.type === 'cote')) {
     coteSurPlan(ctx, P(e.a), P(e.b), `${e.lettre ? `${e.lettre} ` : ''}${e.nom && !e.court ? `${e.nom} ` : ''}${texteValeur(e, s)}`, e.valeur > 0, f, e.inconnu);
@@ -3178,8 +3275,10 @@ async function photoRdv(fichier, notesPapier) {
   if (!chantier || !fichier) return;
   try {
     const data = await traiterImage(fichier, notesPapier);
+    const facade = notesPapier ? '' : orientationFacade();
     const envoi = { action: 'chantier', docId: nouvelId(), date: new Date().toISOString(), total: 1, page: 1, type: '', chantier,
-      note: notesPapier ? 'Notes papier du rendez-vous' : 'Photo du rendez-vous', fichier: { mime: 'image/jpeg', data: data.split(',')[1] } };
+      note: notesPapier ? 'Notes papier du rendez-vous' : `Photo du rendez-vous${facade ? ` – ${facade}` : ''}`,
+      fichier: { mime: 'image/jpeg', data: data.split(',')[1] } };
     if (notesPapier) Object.assign(envoi, { rubrique: '02 Devis & contrat', prefixe: 'Notes-RDV' });
     if (notesPapier) V.notes++; else V.photos++;
     sauverRdv();
@@ -3199,6 +3298,7 @@ function mesuresRdv() {
   R.analyse = null;
   R.photoEnvoyee = false;
   R.depuisRdv = true;
+  $('#releve-facade').value = '';
   ouvrirReleve(chantier);
 }
 
@@ -4170,7 +4270,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#recherche-fermer').onclick = () => ouvrirOnglet('accueil');
 
   // Relevé de mesures
-  $('#releve-photo').onclick = () => $('#releve-input').click();
+  $('#releve-photo').onclick = () => { activerBoussole(); $('#releve-input').click(); };
+  $('#releve-facade').oninput = () => sauverBrouillonReleve();
   $('#releve-galerie').onclick = () => $('#releve-galerie-input').click();
   for (const id of ['#releve-input', '#releve-galerie-input']) {
     $(id).onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f); };
@@ -4226,7 +4327,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) {
     $(id).oninput = (e) => { V[cle] = e.target.value; if (cle === 'nom') V.chantierEnvoye = false; sauverRdv(); majRdv(); };
   }
-  $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) $('#rdv-photo-input').click(); };
+  $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) { activerBoussole(); $('#rdv-photo-input').click(); } };
   $('#rdv-notes').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-input').click(); };
   $('#rdv-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, false); };
   $('#rdv-notes-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, true); };

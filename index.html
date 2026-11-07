@@ -331,7 +331,7 @@
       <button id="rdv-mesures" class="action"><span class="tuile t-bleu">📏</span>Mesures<small id="rdv-compte-releves"></small></button>
       <button id="rdv-notes" class="action"><span class="tuile t-violet">📝</span>Notes papier<small id="rdv-compte-notes"></small></button>
     </div>
-    <p class="discret petit-texte centre">Chaque photo part tout de suite dans le dossier du chantier : pas besoin de revenir.</p>
+    <p class="discret petit-texte centre">Chaque photo part tout de suite dans le dossier du chantier : pas besoin de revenir. Plusieurs façades ? Touche « Mesures » une fois par façade : la boussole la nomme toute seule.</p>
 
     <section class="carte">
       <h2>🎙️ Ce que veut le client</h2>
@@ -447,6 +447,8 @@
       <div class="bloc">
         <p class="etiquette">Chantier</p>
         <select id="releve-chantier"></select>
+        <div class="champ"><label for="releve-facade">Façade <span class="discret">(trouvée par la boussole, modifiable)</span></label>
+          <input id="releve-facade" type="text" autocomplete="off" placeholder="ex. Façade nord, Pignon sud"></div>
       </div>
       <div class="pied-fixe">
         <button id="releve-envoyer" class="btn principal" disabled>📄 Créer la feuille de relevé</button>
