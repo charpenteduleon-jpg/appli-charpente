@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1673,8 +1673,63 @@ function lireMesure(texte) {
 }
 
 // Échelle (mètres par pixel de la photo), horizontale et verticale, d'après les cotes mesurées sur place.
+// ---------- Redressement de la perspective (photo prise de biais) ----------
+// Les 4 coins du mur trouvés par Claude + la largeur et la ou les hauteurs mesurées donnent une homographie :
+// chaque point de la photo est replacé à sa vraie position sur le mur, en mètres.
+function homographie(src, dst) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = src[i], { x: u, y: v } = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  // Élimination de Gauss avec pivot partiel.
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    if (Math.abs(A[p][c]) < 1e-12) return null;
+    [A[c], A[p]] = [A[p], A[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = 0; r < 8; r++) {
+      if (r === c) continue;
+      const f = A[r][c] / A[c][c];
+      for (let k = c; k < 8; k++) A[r][k] -= f * A[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  return b.map((v, i) => v / A[i][i]);
+}
+const appliquerH = (h, p) => {
+  const w = h[6] * p.x + h[7] * p.y + 1;
+  return { x: (h[0] * p.x + h[1] * p.y + h[2]) / w, y: (h[3] * p.x + h[4] * p.y + h[5]) / w };
+};
+// Point de la photo → mètres sur le mur (perspective redressée, ou simple échelle).
+const versM = (p, s) => (s.H ? appliquerH(s.H, p) : { x: p.x * s.sx, y: p.y * s.sy });
+
+function echellePerspective() {
+  const rep = R.analyse?.repere;
+  if (!rep?.coins) return null;
+  const cote = (l) => R.elements.find((e) => e.type === 'cote' && e.lettre && e.lettre === String(l || '').toUpperCase());
+  const L = cote(rep.cote_largeur)?.valeur, hg = cote(rep.cote_hauteur_gauche)?.valeur;
+  if (!(L > 0 && hg > 0)) return null;
+  const hdMesuree = cote(rep.cote_hauteur_droite)?.valeur;
+  const hd = hdMesuree > 0 ? hdMesuree : hg;
+  // Repère du mur : x vers la droite, y vers le bas (comme la photo), pied du mur à y = 0.
+  const H = homographie(rep.coins, [{ x: 0, y: 0 }, { x: L, y: 0 }, { x: L, y: -hd }, { x: 0, y: -hg }]);
+  if (!H || !H.every(Number.isFinite)) return null;
+  const s = { H, perspective: true, hauteurDroiteSupposee: !(hdMesuree > 0), sx: L / Math.max(1, Math.hypot(rep.coins[1].x - rep.coins[0].x, rep.coins[1].y - rep.coins[0].y)) };
+  s.sy = s.sx;
+  // Contrôle : les autres cotes mesurées, comparées à la photo redressée.
+  const autres = R.elements.filter((e) => e.type === 'cote' && e.valeur > 0 && ![rep.cote_largeur, rep.cote_hauteur_gauche, rep.cote_hauteur_droite].includes(e.lettre));
+  s.refs = R.elements.filter((e) => e.type === 'cote' && e.valeur > 0).length;
+  s.ecart = autres.reduce((m, e) => Math.max(m, Math.abs(longueurM(e.a, e.b, s) - e.valeur) / e.valeur), 0);
+  s.controles = autres.length;
+  return s;
+}
+
 function echelleReleve() {
   if (R.mode === 'saisie') return R.echelleFixe;
+  const persp = echellePerspective();
+  if (persp) return persp;
   const refs = R.elements.filter((e) => e.type === 'cote' && e.valeur > 0)
     .map((e) => ({ dx: e.b.x - e.a.x, dy: e.b.y - e.a.y, L: e.valeur }))
     .filter((r) => Math.hypot(r.dx, r.dy) > 2);
@@ -1699,9 +1754,9 @@ function echelleReleve() {
   return { sx, sy, refs: refs.length, ecart, deuxSens };
 }
 
-const longueurM = (a, b, s) => Math.hypot((b.x - a.x) * s.sx, (b.y - a.y) * s.sy);
+const longueurM = (a, b, s) => { const p = versM(a, s), q = versM(b, s); return Math.hypot(q.x - p.x, q.y - p.y); };
 const airePx = (pts) => Math.abs(pts.reduce((t, p, i) => { const q = pts[(i + 1) % pts.length]; return t + p.x * q.y - q.x * p.y; }, 0)) / 2;
-const aireM2 = (pts, s) => airePx(pts) * s.sx * s.sy;
+const aireM2 = (pts, s) => airePx(pts.map((p) => versM(p, s)));
 const centre = (pts) => ({ x: pts.reduce((t, p) => t + p.x, 0) / pts.length, y: pts.reduce((t, p) => t + p.y, 0) / pts.length });
 // Où écrire le nom d'une surface : le point de la surface le plus éloigné des bords, des ouvertures et des cotes
 // (le centre tombe souvent dans l'ouverture d'un pignon).
@@ -1837,7 +1892,11 @@ function appliquerAnalyse(a, f = 1) {
       a: P(c.a), b: P(c.b), valeur: 0, court: true });
   }
   R.elements = els;
-  R.analyse = { forme: a.forme, description: a.description, remarques: a.remarques };
+  const r = a.repere;
+  R.analyse = { forme: a.forme, description: a.description, remarques: a.remarques,
+    repere: r && r.bas_gauche ? { coins: [r.bas_gauche, r.bas_droit, r.haut_droit, r.haut_gauche].map(P),
+      cote_largeur: String(r.cote_largeur || '').toUpperCase(), cote_hauteur_gauche: String(r.cote_hauteur_gauche || '').toUpperCase(),
+      cote_hauteur_droite: String(r.cote_hauteur_droite || '').toUpperCase() } : null };
   choisirOutilReleve('modifier');
   redessinerReleve();
   dessinerPanneauCotes();
@@ -1961,12 +2020,12 @@ function lineairesDepuisContour(s) {
   const surf = R.elements.find((e) => e.type === 'surface');
   if (!s || !surf || R.analyse?.forme !== 'pignon' || surf.pts.length !== 5) return [];
   const [p0, p1, p2, p3, p4] = surf.pts;
-  const pente = (a, b) => Math.atan2(Math.abs(a.y - b.y) * s.sy, Math.abs(a.x - b.x) * s.sx);
-  const sol = (p0.y + p4.y) / 2;
+  const pente = (a, b) => { const m = versM(a, s), n = versM(b, s); return Math.atan2(Math.abs(m.y - n.y), Math.abs(m.x - n.x)); };
+  const sol = (versM(p0, s).y + versM(p4, s).y) / 2;
   return [
     ['Égout gauche', `${fmtM(longueurM(p0, p1, s))} m`],
     ['Égout droit', `${fmtM(longueurM(p4, p3, s))} m`],
-    ['Faîtage (hauteur)', `${fmtM((sol - p2.y) * s.sy)} m`],
+    ['Faîtage (hauteur)', `${fmtM(sol - versM(p2, s).y)} m`],
     ['Rampant gauche', `${fmtM(longueurM(p1, p2, s))} m`],
     ['Rampant droit', `${fmtM(longueurM(p2, p3, s))} m`],
     ['Pente gauche', afficherChamp('p', pente(p1, p2))],
@@ -2652,8 +2711,14 @@ function majReleve(sauver = true) {
   majPanneauCotes(s);
   if (R.analyseEnCours) { /* le message d'attente reste affiché */ }
   else if (proposees.length && !s) aide.textContent = `Prends les mesures ${proposees.map((e) => e.lettre).join(', ')} : touche une case puis vise au laser (ou tape, ou dicte). Dès la première, tout se calcule.`;
-  else if (proposees.length && s && proposees.some((e) => !e.valeur)) aide.textContent = `✓ Échelle trouvée. Les cases vides montrent la valeur d'après la photo : mesure-les pour contrôler.${s.refs >= 3 ? ` Écart max entre tes mesures et la photo : ${fmtNb(s.ecart * 100, 1)} %.` : ''}`;
-  else if (proposees.length && s) aide.textContent = `✓ Toutes les mesures sont prises.${s.refs >= 3 ? ` Écart max entre tes mesures et la photo : ${fmtNb(s.ecart * 100, 1)} %.` : ''} Tu peux créer la feuille.`;
+  else if (proposees.length && s) {
+    const controle = s.perspective ? (s.controles ? ` Contrôle : écart max ${fmtNb(s.ecart * 100, 1)} % entre tes autres mesures et la photo.` : '')
+      : (s.refs >= 3 ? ` Écart max entre tes mesures et la photo : ${fmtNb(s.ecart * 100, 1)} %.` : '');
+    const persp = s.perspective ? `✓ Perspective redressée${s.hauteurDroiteSupposee ? ` (hauteur à droite supposée égale à gauche : mesure ${R.analyse.repere.cote_hauteur_droite || 'la hauteur à droite'} si la photo est de biais)` : ''}. ` : '✓ Échelle trouvée. ';
+    aide.textContent = proposees.some((e) => !e.valeur)
+      ? `${persp}Les cases vides montrent la valeur d'après la photo : mesure-les pour contrôler.${controle}`
+      : `${persp}Toutes les mesures sont prises.${controle} Tu peux créer la feuille.`;
+  }
   else if (!s) aide.textContent = '① Tire une cote sur quelque chose que tu as mesuré sur place (avec Mesure ou au mètre), puis tape sa mesure : elle donne l\'échelle.';
   else if (enSurface) aide.textContent = R.outil === 'surface' ? 'Touche les coins de la surface un par un (la loupe aide), puis « Fermer la surface ».' : 'Touche les coins de l\'ouverture à déduire, puis « Fermer ».';
   else if (R.outil === 'modifier') aide.textContent = 'Fais glisser un point pour l\'ajuster, ou touche une cote ou une surface pour la modifier.';
@@ -2846,20 +2911,22 @@ function pageEsquisse(s, m) {
 
   piedFeuille(ctx, W, H, R.mode === 'saisie'
     ? `✓ = mesuré sur place · autres cotes calculées par l'appli${R.alertes.length ? ' · ⚠ certaines mesures ne collent pas entre elles, à revérifier' : ''} · à confirmer avant commande`
-    : `✓ = mesuré sur place · autres cotes calculées sur la photo (échelle sur ${s.refs} mesure${s.refs > 1 ? 's' : ''}${s.refs >= 3 ? `, écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}) · à confirmer avant commande`);
+    : s.perspective
+      ? `✓ = mesuré sur place · autres cotes calculées sur la photo, perspective redressée${s.controles ? ` (contrôle : écart max ${fmtNb(s.ecart * 100, 1)} %)` : ''} · à confirmer avant commande`
+      : `✓ = mesuré sur place · autres cotes calculées sur la photo (échelle sur ${s.refs} mesure${s.refs > 1 ? 's' : ''}${s.refs >= 3 ? `, écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}) · à confirmer avant commande`);
   return c.toDataURL('image/jpeg', 0.86);
 }
 
 // Dessin propre (esquisse cotée) dans une zone du canevas : sert à la feuille et à l'aperçu de la saisie.
 // f grossit les traits et les textes (aperçu sur le téléphone).
 function dessinerPlan(ctx, zone, s, f = 1) {
-  const tous = R.elements.flatMap((e) => (e.type === 'cote' ? [e.a, e.b] : e.pts)).map((p) => ({ x: p.x * s.sx, y: p.y * s.sy }));
+  const tous = R.elements.flatMap((e) => (e.type === 'cote' ? [e.a, e.b] : e.pts)).map((p) => versM(p, s));
   if (!tous.length) return;
   const minX = Math.min(...tous.map((p) => p.x)), maxX = Math.max(...tous.map((p) => p.x));
   const minY = Math.min(...tous.map((p) => p.y)), maxY = Math.max(...tous.map((p) => p.y));
   const k = Math.min((zone.w - 130 * f) / Math.max(maxX - minX, 0.01), (zone.h - 90 * f) / Math.max(maxY - minY, 0.01));
   const ox = zone.x + (zone.w - (maxX - minX) * k) / 2, oy = zone.y + (zone.h - (maxY - minY) * k) / 2;
-  const P = (p) => ({ x: ox + (p.x * s.sx - minX) * k, y: oy + (p.y * s.sy - minY) * k });
+  const P = (p) => { const m = versM(p, s); return { x: ox + (m.x - minX) * k, y: oy + (m.y - minY) * k }; };
 
   const motif = motifBardage(ctx);
   for (const type of ['surface', 'ouverture']) {
@@ -2885,7 +2952,8 @@ function dessinerPlan(ctx, zone, s, f = 1) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // Petite ouverture (le nom ne tient pas dedans) : surface seule, le nom est dans le tableau.
-    const largeurPx = (Math.max(...e.pts.map((p) => p.x)) - Math.min(...e.pts.map((p) => p.x))) * s.sx * k;
+    const xs = e.pts.map((p) => versM(p, s).x);
+    const largeurPx = (Math.max(...xs) - Math.min(...xs)) * k;
     if (e.type === 'ouverture' && largeurPx < ctx.measureText(nomElement(e)).width + 10 * f) {
       ctx.font = `400 ${22 * f}px -apple-system, "Segoe UI", sans-serif`;
       ctx.fillText(complet && !e.inconnu ? `− ${fmtNb(aireM2(e.pts, s), 2)}` : '?', cc.x, cc.y);
