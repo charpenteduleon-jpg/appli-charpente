@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.4';
+const VERSION = '1.17.5';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1377,6 +1377,8 @@ let ficheCourante = null;
 
 async function ouvrirFiche(nom) {
   ficheCourante = { nom };
+  ficheDepuisRdv = false;
+  $('#fiche-retour').textContent = '‹ Chantiers';
   $('#fiche-titre').textContent = nom;
   $('#fiche-sous-titre').textContent = '';
   $('#fiche-infos').open = false;
@@ -1399,8 +1401,139 @@ async function ouvrirFiche(nom) {
 }
 let ficheEnMemoire = null;
 
+// ===================== Téléphone, adresse, code postal, ville =====================
+const RE_TEL = /(?:\+33\s?|0)[1-9](?:[\s.-]?\d{2}){4}/;
+function formaterTel(t) {
+  let d = String(t || '').replace(/[^\d+]/g, '');
+  if (d.startsWith('+33')) d = `0${d.slice(3)}`;
+  return /^0\d{9}$/.test(d) ? d.replace(/(\d{2})(?=\d)/g, '$1 ') : String(t || '').trim();
+}
+// « Jean Le Gall 06 88 82 50 41 » tapé dans Client : le numéro passe dans Téléphone (demande de Jean-Phi, 09/11).
+function separerTelephone(client, tel) {
+  const texte = String(client || '');
+  const m = texte.match(RE_TEL);
+  if (!m) return { client: texte.trim(), tel: tel ? formaterTel(tel) : '' };
+  const reste = texte.replace(m[0], ' ').replace(/\b(t[ée]l[ée]?(phone)?|port(able)?|mobile)\s*[.:]?\s*/gi, ' ')
+    .replace(/^[\s,;:/–-]+|[\s,;:/–-]+$/g, '').replace(/\s{2,}/g, ' ').trim();
+  return { client: reste, tel: tel ? formaterTel(tel) : formaterTel(m[0]) };
+}
+// « 7 Poulscavennou, 29233 Cléder » ↔ { rue, cp, ville }
+function separerAdresse(s) {
+  const t = String(s || '').trim();
+  const m = t.match(/^(.*?)[,\s]*\b(\d{5})\s+(.+)$/);
+  return m ? { rue: m[1].trim(), cp: m[2], ville: m[3].trim() } : { rue: t, cp: '', ville: '' };
+}
+const joindreAdresse = (rue, cp, ville) => [String(rue || '').trim(), [cp, ville].map((x) => String(x || '').trim()).filter(Boolean).join(' ')]
+  .filter(Boolean).join(', ');
+
+// Propose l'adresse en tapant (Base adresse nationale), la ville d'après le code postal (une seule = remplie,
+// plusieurs = au choix) et le code postal d'après la ville. quandChange(pos) : pos = { lat, lon } si une adresse
+// proposée a été choisie, null sinon (position inconnue).
+function brancherAdresse(p, quandChange) {
+  const rue = $(`#${p}-adresse`), cp = $(`#${p}-cp`), ville = $(`#${p}-ville`);
+  const listeA = $(`#${p}-adresse-propositions`), listeV = $(`#${p}-ville-propositions`);
+  let minuteur = 0, demande = 0;
+  const fermer = (l) => { l.classList.add('cache'); l.replaceChildren(); };
+  const proposer = (l, items) => {
+    if (!items.length) { fermer(l); return; }
+    l.replaceChildren(...items.map(({ texte, petit, choisir }) => el('li', {}, el('button', {
+      type: 'button', onmousedown: (e) => e.preventDefault(), onclick: () => { fermer(l); choisir(); },
+    }, el('span', {}, texte), petit ? el('small', {}, petit) : null))));
+    l.classList.remove('cache');
+  };
+  const chercher = async (url) => {
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  };
+  rue.addEventListener('input', () => {
+    quandChange(null);
+    clearTimeout(minuteur);
+    const q = rue.value.trim();
+    if (q.length < 4 || !navigator.onLine) { fermer(listeA); return; }
+    minuteur = setTimeout(async () => {
+      const n = ++demande;
+      const params = { q: ville.value && !q.includes(ville.value) ? `${q} ${ville.value}` : q, autocomplete: 1, limit: 5 };
+      if (/^\d{5}$/.test(cp.value)) params.postcode = cp.value;
+      if (dernierePosition && Date.now() - dernierePosition.quand < 3600000) Object.assign(params, { lat: dernierePosition.lat.toFixed(4), lon: dernierePosition.lon.toFixed(4) });
+      try {
+        const j = await chercher(`https://data.geopf.fr/geocodage/search?${new URLSearchParams(params)}`);
+        if (n !== demande || document.activeElement !== rue) return;
+        proposer(listeA, (j.features || []).map((f) => {
+          const pr = f.properties;
+          return { texte: pr.type === 'municipality' ? pr.city : pr.name, petit: `${pr.postcode} ${pr.city}`, choisir: () => {
+            rue.value = pr.type === 'municipality' ? '' : pr.name;
+            cp.value = pr.postcode || '';
+            ville.value = pr.city || '';
+            fermer(listeV);
+            const [lon, lat] = f.geometry?.coordinates || [];
+            quandChange(pr.type === 'municipality' ? null : { lat, lon });
+          } };
+        }));
+      } catch { /* hors ligne ou service lent : on tape à la main */ }
+    }, 250);
+  });
+  cp.addEventListener('input', async () => {
+    cp.value = cp.value.replace(/\D/g, '').slice(0, 5);
+    quandChange(null);
+    if (cp.value.length !== 5) { fermer(listeV); return; }
+    try {
+      const communes = (await chercher(`https://geo.api.gouv.fr/communes?codePostal=${cp.value}&fields=nom`))
+        .map((c) => c.nom).sort((a, b) => a.localeCompare(b, 'fr'));
+      if (communes.length === 1) { ville.value = communes[0]; fermer(listeV); quandChange(null); }
+      else if (communes.length > 1 && !communes.includes(ville.value)) {
+        ville.value = '';
+        proposer(listeV, communes.map((nom) => ({ texte: nom, choisir: () => { ville.value = nom; quandChange(null); } })));
+      } else if (!communes.length) toast(`Aucune commune pour le code postal ${cp.value}.`, 'erreur');
+    } catch { /* hors ligne */ }
+  });
+  ville.addEventListener('input', () => {
+    quandChange(null);
+    clearTimeout(minuteur);
+    const q = ville.value.trim();
+    if (q.length < 3 || /^\d{5}$/.test(cp.value)) { fermer(listeV); return; }
+    minuteur = setTimeout(async () => {
+      const n = ++demande;
+      try {
+        const communes = await chercher(`https://geo.api.gouv.fr/communes?${new URLSearchParams({ nom: q, fields: 'nom,codesPostaux,departement', boost: 'population', limit: 6 })}`);
+        if (n !== demande || document.activeElement !== ville) return;
+        proposer(listeV, communes.flatMap((c) => (c.codesPostaux || []).slice(0, 3).map((code) => ({
+          texte: c.nom, petit: `${code}${c.departement ? ` · ${c.departement.nom}` : ''}`,
+          choisir: () => { ville.value = c.nom; cp.value = code; quandChange(null); },
+        }))).slice(0, 6));
+      } catch { /* hors ligne */ }
+    }, 250);
+  });
+  for (const [champ, liste] of [[rue, listeA], [cp, listeV], [ville, listeV]]) {
+    champ.addEventListener('blur', () => setTimeout(() => fermer(liste), 250));
+  }
+}
+
+// Client : un numéro tapé dedans part dans Téléphone ; Téléphone : mis en forme « 06 88 82 50 41 ».
+function brancherClientTel(champClient, champTel, quandChange) {
+  champClient.addEventListener('change', () => {
+    const s = separerTelephone(champClient.value, champTel.value);
+    if (s.client === champClient.value && s.tel === champTel.value) return;
+    const deplace = !champTel.value && s.tel;
+    champClient.value = s.client;
+    champTel.value = s.tel;
+    quandChange();
+    if (deplace) toast('Numéro rangé dans « Téléphone » ✅', 'ok');
+  });
+  champTel.addEventListener('change', () => { champTel.value = formaterTel(champTel.value); quandChange(); });
+}
+
+let fichePos = null;
+let ficheDepuisRdv = false;
 function dessinerFiche(f) {
   ficheCourante = f;
+  fichePos = null;
+  // Numéro tapé dans Client par le passé : on le range tout seul dans Téléphone (une fois).
+  if (!f.telephone && RE_TEL.test(f.client || '')) {
+    const s = separerTelephone(f.client, '');
+    f.client = s.client; f.telephone = s.tel;
+    mettreEnFile([{ action: 'majChantier', chantier: f.nom, client: s.client, telephone: s.tel }]);
+  }
   $('#fiche-sous-titre').textContent = [f.client, f.adresse].filter(Boolean).join(' · ') || 'Complète les infos du chantier ci-dessous';
   $('#fiche-drive').href = f.dossier;
   const tel = (f.telephone || '').replace(/[^\d+]/g, '');
@@ -1414,7 +1547,10 @@ function dessinerFiche(f) {
     el('button', { class: s === statutDe(f.statut) ? 'active' : '', 'data-statut': s, onclick: () => changerStatut(s) }, STATUTS_COURTS[s])));
   $('#fiche-client').value = f.client || '';
   $('#fiche-tel').value = f.telephone || '';
-  $('#fiche-adresse').value = f.adresse || '';
+  const a = separerAdresse(f.adresse);
+  $('#fiche-adresse').value = a.rue;
+  $('#fiche-cp').value = a.cp;
+  $('#fiche-ville').value = a.ville;
   $('#fiche-devis').value = f.devisHT ? String(f.devisHT).replace('.', ',') : '';
 
   const blocs = [];
@@ -1443,8 +1579,10 @@ function dessinerFiche(f) {
     const bloc = el('section', { class: 'carte rubrique' },
       el('h2', {}, el('a', { href: r.url, target: '_blank', rel: 'noopener' }, `${icones[r.titre] || '📁'} ${r.titre}`), el('span', { class: 'nb' }, String(r.total))));
     if (r.vignettes?.length) {
-      bloc.append(el('div', { class: 'vignettes' }, ...r.vignettes.map((v) =>
-        el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })))));
+      bloc.append(el('div', { class: 'vignettes' }, ...r.vignettes.map((v) => el('div', { class: 'vignette-photo' },
+        el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })),
+        v.id && titre === 'Photos' ? el('button', { class: 'mesurer', type: 'button', onclick: (e) => mesurerPhotoChantier(f.nom, v, e.currentTarget) }, '📏 Mesurer') : null))));
+      if (titre === 'Photos') bloc.append(el('p', { class: 'discret aide-mesurer' }, 'Touche « 📏 Mesurer » sous une photo : Claude te dit quelles mesures prendre, tu les tapes, et tu règles la zone de bardage.'));
       if (r.total > r.vignettes.length) bloc.append(lienDossier(r));
     } else if (r.fichiers.length) {
       const NB_VISIBLES = 6;
@@ -1489,6 +1627,30 @@ async function ouvrirReleveSauve(chantier, id, bouton) {
   } catch (e) {
     toast(`Relevé impossible à ouvrir : ${e.message}`, 'erreur');
   } finally { if (texte) texte.textContent = 'Ouvrir ›'; }
+}
+
+// Photo déjà rangée dans le chantier (prise avant, ou importée) : on fait le relevé dessus comme sur une photo neuve.
+// Claude propose les cotes à prendre, Jean-Phi les tape, règle la zone de travaux, puis « Ranger » garde le relevé.
+async function mesurerPhotoChantier(chantier, v, bouton) {
+  const enCours = R.actif && (R.elements.length || Object.values(R.gabarit?.saisis || {}).some(Boolean));
+  if (enCours && !confirm('Un relevé est en cours. Le remplacer par un relevé sur cette photo ?')) return;
+  const texte = bouton.textContent;
+  bouton.disabled = true; bouton.textContent = 'Ouverture…';
+  try {
+    const r = await appelServeur({ action: 'photoChantier', chantier, id: v.id }, 90000);
+    const binaire = atob(r.data);
+    const octets = new Uint8Array(binaire.length);
+    for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
+    const data = await traiterImage(new Blob([octets], { type: r.type || 'image/jpeg' }), false);
+    afficher('releve');
+    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier, photoEnvoyee: true, facade: '',
+      depuisRdv: ficheDepuisRdv && !!V.actif });
+    sauverBrouillonReleve();
+    analyserPhotoReleve();
+    toast('Photo ouverte : donne le nom de la façade ; Claude cherche les mesures à prendre…', 'ok');
+  } catch (e) {
+    toast(`Photo impossible à ouvrir : ${e.message}`, 'erreur');
+  } finally { bouton.disabled = false; bouton.textContent = texte; }
 }
 
 // Un document du dossier chantier : nom sans la date du mail (affichée à part), ouvert dans Drive.
@@ -1537,8 +1699,10 @@ async function enregistrerInfosChantier() {
   if (!ficheCourante?.nom) return;
   const devisHT = lireMontant($('#fiche-devis').value);
   if (devisHT === null) { toast('Montant du devis incorrect (ex. 12 450,50).', 'erreur'); return; }
-  const maj = { client: $('#fiche-client').value.trim(), telephone: $('#fiche-tel').value.trim(), adresse: $('#fiche-adresse').value.trim(), devisHT };
+  const s = separerTelephone($('#fiche-client').value, $('#fiche-tel').value);
+  const maj = { client: s.client, telephone: s.tel, adresse: joindreAdresse($('#fiche-adresse').value, $('#fiche-cp').value, $('#fiche-ville').value), devisHT };
   Object.assign(ficheCourante, maj, { devisHT: devisHT || null });
+  if (fichePos) { Object.assign(maj, fichePos); Object.assign(ficheCourante, fichePos); }
   if (ficheCourante.argent) recalculerArgent(ficheCourante.argent, devisHT || null);
   const liste = listeChantiers();
   const c = liste.find((x) => x.nom === ficheCourante.nom);
@@ -3599,16 +3763,26 @@ function ouvrirRdv() {
   for (const b of $$('#rdv-type [data-type]')) b.classList.toggle('active', b.dataset.type === V.type);
   $('#rdv-existant').classList.toggle('cache', V.type !== 'existant');
   $('#rdv-nouveau').classList.toggle('cache', V.type !== 'nouveau');
-  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'], ['#rdv-adresse', 'adresse'],
-    ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) $(id).value = V[cle] || '';
   // Chantier existant : on reprend ce que la fiche connaît déjà.
+  const ficheRdv = V.type === 'existant' && V.chantier ? lireJson(`fiche:${V.chantier}`, null) : null;
   if (V.type === 'existant' && V.chantier) {
-    const f = lireJson(`fiche:${V.chantier}`, null);
     const c = listeChantiers().find((x) => x.nom === V.chantier) || {};
-    if (!V.client) $('#rdv-client').value = V.client = c.client || f?.client || '';
-    if (!V.tel) $('#rdv-tel').value = V.tel = f?.telephone || '';
-    if (!V.adresse) $('#rdv-adresse').value = V.adresse = f?.adresse || '';
+    if (!V.client) V.client = c.client || ficheRdv?.client || '';
+    if (!V.tel) V.tel = ficheRdv?.telephone || '';
+    if (!V.adresse) V.adresse = ficheRdv?.adresse || '';
   }
+  Object.assign(V, (({ client, tel }) => ({ client, tel }))(separerTelephone(V.client, V.tel)));
+  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'],
+    ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) $(id).value = V[cle] || '';
+  const a = separerAdresse(V.adresse);
+  $('#rdv-adresse').value = a.rue; $('#rdv-cp').value = a.cp; $('#rdv-ville').value = a.ville;
+  // Ce que le chantier contient déjà (photos, notes papier, relevés) : dans sa fiche.
+  const voir = $('#rdv-voir-fiche');
+  voir.classList.toggle('cache', !(V.type === 'existant' && V.chantier));
+  if (ficheRdv?.rubriques) {
+    const nb = (t) => ficheRdv.rubriques.find((r) => r.titre === t)?.total || 0;
+    voir.textContent = `📂 Déjà dans ce chantier : ${nb('Photos')} photo${nb('Photos') > 1 ? 's' : ''}, ${nb('Devis & contrat')} doc${nb('Devis & contrat') > 1 ? 's' : ''} (notes), ${nb('Plans')} plan${nb('Plans') > 1 ? 's' : ''} › Voir`;
+  } else voir.textContent = '📂 Photos, notes et relevés déjà dans ce chantier ›';
   $('#rdv-travaux').replaceChildren(...TRAVAUX.map((t) => {
     const b = el('button', { class: `puce${V.travaux.includes(t) ? ' active' : ''}` }, t);
     b.onclick = () => {
@@ -3644,7 +3818,7 @@ function assurerChantierRdv() {
     return null;
   }
   if (!V.chantierEnvoye) {
-    const maj = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse };
+    const maj = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse, lat: V.lat, lon: V.lon };
     if (V.type === 'nouveau') maj.statut = 'Devis en attente';
     mettreEnFile([maj]);
     V.chantierEnvoye = true;
@@ -3744,7 +3918,7 @@ async function terminerRdv() {
   if (!V.dictee.trim() && !V.travaux.length && !V.releves.length && !V.notes &&
     !confirm('Rien n\'a été dicté, coché ou mesuré. Envoyer quand même ?')) return;
   const resume = `${nom} : ${V.travaux.join(', ') || 'travaux à préciser'}`;
-  const majInfos = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse };
+  const majInfos = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse, lat: V.lat, lon: V.lon };
   const { tousPartis } = await mettreEnFile([majInfos,
     { action: 'visite', chantier: nom, texte: texteRdv(), resume, date: new Date(V.debut).toISOString() }]);
   V.actif = false;
@@ -4786,11 +4960,39 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const b of $$('#rdv-type [data-type]')) {
     b.onclick = () => { V.type = b.dataset.type; V.chantierEnvoye = false; sauverRdv(); ouvrirRdv(); };
   }
-  $('#rdv-chantier-select').onchange = (e) => { V.chantier = e.target.value; V.chantierEnvoye = false; V.client = V.tel = V.adresse = ''; sauverRdv(); ouvrirRdv(); };
-  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'], ['#rdv-adresse', 'adresse'],
+  $('#rdv-chantier-select').onchange = (e) => {
+    V.chantier = e.target.value; V.chantierEnvoye = false; V.client = V.tel = V.adresse = ''; V.lat = V.lon = null; sauverRdv(); ouvrirRdv();
+    // La fiche du chantier (pour savoir ce qu'il contient déjà) : lue en fond si elle n'est pas sur l'appareil.
+    if (V.chantier && !lireJson(`fiche:${V.chantier}`, null)) {
+      const nom = V.chantier;
+      appelServeur({ action: 'fiche', chantier: nom }, 60000).then((r) => {
+        const { rubriques, ...reste } = r.fiche;
+        ecrireJson(`fiche:${nom}`, { ...reste, rubriques: rubriques.map(({ vignettes, ...x }) => x) });
+        if (ecranCourant === 'rdv' && V.chantier === nom) ouvrirRdv();
+      }).catch(() => {});
+    }
+  };
+  $('#rdv-voir-fiche').onclick = () => {
+    if (!V.chantier) return;
+    sauverRdv(); ouvrirFiche(V.chantier);
+    ficheDepuisRdv = true; $('#fiche-retour').textContent = '‹ Rendez-vous';
+  };
+  $('#fiche-retour').onclick = () => {
+    if (ficheDepuisRdv && V.actif) { ficheDepuisRdv = false; $('#fiche-retour').textContent = '‹ Chantiers'; ouvrirRdv(); }
+    else ouvrirOnglet('chantiers');
+  };
+  for (const [id, cle] of [['#rdv-nom', 'nom'], ['#rdv-client', 'client'], ['#rdv-tel', 'tel'],
     ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) {
     $(id).oninput = (e) => { V[cle] = e.target.value; if (cle === 'nom') V.chantierEnvoye = false; sauverRdv(); majRdv(); };
   }
+  brancherClientTel($('#rdv-client'), $('#rdv-tel'), () => { V.client = $('#rdv-client').value; V.tel = $('#rdv-tel').value; sauverRdv(); });
+  brancherAdresse('rdv', (pos) => {
+    V.adresse = joindreAdresse($('#rdv-adresse').value, $('#rdv-cp').value, $('#rdv-ville').value);
+    V.lat = pos ? pos.lat : null; V.lon = pos ? pos.lon : null;
+    sauverRdv();
+  });
+  brancherClientTel($('#fiche-client'), $('#fiche-tel'), () => {});
+  brancherAdresse('fiche', (pos) => { fichePos = pos ? { lat: pos.lat, lon: pos.lon } : null; });
   $('#rdv-photo').onclick = () => { if (assurerChantierRdv()) { $('#rdv-photo-input').click(); activerBoussole(); } };
   $('#rdv-notes').onclick = () => { if (assurerChantierRdv()) $('#rdv-notes-input').click(); };
   $('#rdv-photo-input').onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoRdv(f, false); };

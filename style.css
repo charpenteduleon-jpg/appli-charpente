@@ -287,6 +287,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 .rubrique button.tout-voir { display: flex; gap: 10px; align-items: center; width: 100%; padding: 10px 0; border: none; border-top: 1px solid var(--bord); background: none; color: var(--bleu-vif); font-size: 15px; font-weight: 600; text-align: left; }
 .vignettes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .vignettes img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; display: block; }
+.vignette-photo { display: flex; flex-direction: column; gap: 4px; }
+.vignette-photo .mesurer { border: none; border-radius: 8px; background: var(--fond); color: var(--bleu-vif); font-size: 13px; font-weight: 600; padding: 6px 4px; }
+.vignette-photo .mesurer:disabled { opacity: .6; }
+.aide-mesurer { font-size: 13px; margin: 8px 0 0; }
 
 /* ===================== À faire ===================== */
 .ajout-tache { display: flex; gap: 10px; margin: 4px 0 14px; }
@@ -331,6 +335,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 
 /* ===================== Calculs ===================== */
 .deux-champs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+/* Adresse proposée en tapant, ville d'après le code postal */
+.cp-ville { display: grid; grid-template-columns: 7.5em 1fr; gap: 0 10px; }
+.champ-adresse { position: relative; }
+.propositions { position: absolute; left: 0; right: 0; top: 100%; z-index: 30; list-style: none; margin: 4px 0 0; padding: 4px;
+  background: var(--carte); border: 1px solid var(--bord); border-radius: 12px; box-shadow: var(--ombre-forte); max-height: 260px; overflow-y: auto; }
+.propositions button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; background: none; border: none;
+  padding: 10px 12px; border-radius: 9px; font-size: 16px; color: var(--texte); cursor: pointer; }
+.propositions button:hover, .propositions button:focus { background: var(--fond); }
+.propositions small { color: var(--texte-doux); font-size: 13px; }
+#rdv-voir-fiche { display: block; text-align: left; margin-top: 8px; font-weight: 600; }
 .resultats { list-style: none; margin: 8px 0 0; padding: 0; }
 .resultats li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bord); font-size: 15px; }
 .resultats li b { font-size: 17px; font-variant-numeric: tabular-nums; }
