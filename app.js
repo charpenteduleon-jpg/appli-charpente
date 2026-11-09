@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.1';
+const VERSION = '1.17.2';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -281,13 +281,15 @@ async function appairageAutomatique() {
 
 // --- Face ID : l'appli s'ouvre seulement après reconnaissance du visage (clé d'accès de l'iPhone) ---
 const faceIdActif = () => !!lire('faceid-id');
+// Sur le PC, la même protection passe par Windows Hello (visage par la caméra, empreinte ou code PIN).
+const nomVerrou = () => (/iPhone|iPad|Macintosh/.test(navigator.userAgent) ? 'Face ID' : 'Windows Hello');
 
 async function faceIdDisponible() {
   try { return !!window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { return false; }
 }
 
 async function activerFaceId() {
-  if (!(await faceIdDisponible())) { toast('Face ID n\'est pas disponible sur cet appareil.', 'erreur'); return; }
+  if (!(await faceIdDisponible())) { toast(`${nomVerrou()} n'est pas disponible sur cet appareil.`, 'erreur'); return; }
   try {
     const cred = await navigator.credentials.create({ publicKey: {
       rp: { name: 'Charpente du Léon', id: location.hostname },
@@ -299,9 +301,9 @@ async function activerFaceId() {
     } });
     ecrire('faceid-id', enBase64Url(cred.rawId));
     $('#bandeau-faceid').classList.add('cache');
-    toast('Face ID activé 🔒', 'ok');
+    toast(`${nomVerrou()} activé 🔒`, 'ok');
   } catch (e) {
-    toast(`Face ID non activé (${e.message})`, 'erreur');
+    toast(`${nomVerrou()} non activé (${e.message})`, 'erreur');
   }
   dessinerSecurite();
 }
@@ -314,9 +316,9 @@ async function verifierFaceId() {
 }
 
 async function desactiverFaceId() {
-  try { await verifierFaceId(); } catch { toast('Face ID non reconnu.', 'erreur'); return; }
+  try { await verifierFaceId(); } catch { toast(`${nomVerrou()} : non reconnu.`, 'erreur'); return; }
   localStorage.removeItem('faceid-id');
-  toast('Face ID désactivé', 'ok');
+  toast(`${nomVerrou()} désactivé`, 'ok');
   dessinerSecurite();
 }
 
@@ -324,6 +326,8 @@ function verrouiller() {
   securite.verrouillee = true;
   document.body.classList.add('verrouillee');
   $('#verrou-message').textContent = 'Tes chantiers et tes documents sont protégés.';
+  $('#btn-deverrouiller').textContent = `Déverrouiller avec ${nomVerrou()}`;
+  $('#btn-reinitialiser').textContent = `${nomVerrou()} ne marche plus ?`;
   $('#verrou').classList.remove('cache');
   setTimeout(() => { if (!document.hidden) deverrouiller(true); }, 400);
 }
@@ -586,6 +590,7 @@ function rafraichirAccueil() {
   $('#accueil-bonjour').textContent = h < 18 ? 'Bonjour Jean-Phi' : 'Bonsoir Jean-Phi';
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
   majBoutonRdv();
+  majBoutonReleve();
   if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || innerWidth >= 1100) {
     // Sur le PC, la même appli s'installe depuis Edge.
     $('#bandeau-installer strong').textContent = "Installe l'appli sur ce PC";
@@ -2391,21 +2396,39 @@ async function reprendreReleve(b = null) {
   }
 }
 
-// Au démarrage : un relevé laissé il y a moins de 2 heures (l'iPhone a fermé l'appli) est rouvert directement.
+// Au démarrage, l'appli s'ouvre toujours sur l'accueil (demande de Jean-Phi du 09/11) : un relevé ou un rendez-vous
+// en cours se reprend par son bouton en tête de l'accueil. Seule exception, sur l'iPhone : s'il a été touché il y a
+// moins de 10 minutes, c'est qu'on est en plein rendez-vous (l'iPhone a fermé l'appli pendant une photo ou une
+// discussion avec le client), et on y revient directement.
+const REPRISE_AUTO_MS = 10 * 60000;
 async function rouvrirReleveRecent() {
   const b = await brouillonLire();
   const rdv = lireJson('rdv-en-cours', null);
   if (rdv?.actif) Object.assign(V, rdv);
-  if (b && Date.now() - (b.date || 0) < 2 * 3600000) {
-    remplirSelectChantiers($('#releve-chantier'), b.chantier || '', '— Choisir le chantier —');
-    afficher('releve');
-    await reprendreReleve(b);
-    toast('Ton relevé en cours a été retrouvé ✅', 'ok');
-    return;
-  }
-  // Rendez-vous touché il y a moins de 30 minutes (l'iPhone a fermé l'appli pendant une photo) : on y revient
-  // directement. Plus ancien : on reste sur l'accueil, avec le bouton « Reprendre le rendez-vous ».
-  if (rdv?.actif && Date.now() - (rdv.maj || rdv.debut) < 30 * 60000) { ouvrirRdv(); toast('Ton rendez-vous en cours a été retrouvé ✅', 'ok'); }
+  if (!surIos()) return;
+  if (b && Date.now() - (b.date || 0) < REPRISE_AUTO_MS) { await ouvrirReleveEnCours(b); return; }
+  if (rdv?.actif && Date.now() - (rdv.maj || rdv.debut) < REPRISE_AUTO_MS) { ouvrirRdv(); toast('Ton rendez-vous en cours a été retrouvé ✅', 'ok'); }
+}
+
+async function ouvrirReleveEnCours(b = null) {
+  b = b || await brouillonLire();
+  if (!b) { toast('Aucun relevé en cours.', 'erreur'); majBoutonReleve(); return; }
+  remplirSelectChantiers($('#releve-chantier'), b.chantier || '', '— Choisir le chantier —');
+  afficher('releve');
+  await reprendreReleve(b);
+  toast('Ton relevé en cours a été retrouvé ✅', 'ok');
+}
+
+// Accueil : un relevé commencé (brouillon gardé) se reprend par ce bouton.
+async function majBoutonReleve() {
+  const bouton = $('#btn-releve-encours');
+  const b = await brouillonLire().catch(() => null);
+  bouton.classList.toggle('cache', !b);
+  if (!b) return;
+  const quand = new Date(b.date || Date.now());
+  const jour = quand.toDateString() === new Date().toDateString() ? '' : `le ${quand.toLocaleDateString('fr-FR', { day: 'numeric', month: 'numeric' })} `;
+  bouton.querySelector('.sous-titre').textContent = [b.chantier || 'Chantier à choisir', b.facade || '',
+    `modifié ${jour}à ${quand.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`].filter(Boolean).join(' · ');
 }
 
 function nouveauReleve() {
@@ -4383,6 +4406,7 @@ function enregistrerReglages() {
 
 async function majBandeauFaceId() {
   const proposer = reglages.ok() && !faceIdActif() && lire('bandeau-faceid-ferme') !== '1' && await faceIdDisponible();
+  $('#bandeau-faceid strong').textContent = `🔒 Protège l'appli avec ${nomVerrou()}`;
   $('#bandeau-faceid').classList.toggle('cache', !proposer);
 }
 
@@ -4398,7 +4422,7 @@ async function dessinerSecurite() {
   const dispo = await faceIdDisponible();
   const actif = faceIdActif();
   $('#securite-options').replaceChildren(el('li', {}, el('button', { onclick: actif ? desactiverFaceId : activerFaceId },
-    el('span', {}, '🔒'), 'Face ID à l\'ouverture',
+    el('span', {}, '🔒'), `${nomVerrou()} à l'ouverture`,
     el('b', { class: `valeur ${actif ? 'ok' : ''}` }, actif ? 'Activé' : dispo ? 'Activer' : 'Indisponible'))));
   const ul = $('#appareils-liste');
   if (!appaire || !navigator.onLine) { ul.replaceChildren(el('li', {}, el('div', { class: 'ligne' }, el('span', {}, '📱'), appaire ? 'Hors ligne' : '—'))); return; }
@@ -4741,6 +4765,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Rendez-vous client
   $('#btn-rdv').onclick = () => { activerBoussole(); demarrerRdv(); };
+  $('#btn-releve-encours').onclick = () => ouvrirReleveEnCours();
   $('#rdv-fermer').onclick = () => { sauverRdv(); ouvrirOnglet('accueil'); };
   for (const b of $$('#rdv-type [data-type]')) {
     b.onclick = () => { V.type = b.dataset.type; V.chantierEnvoye = false; sauverRdv(); ouvrirRdv(); };
