@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.19.1';
+const VERSION = '1.19.2';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1631,9 +1631,9 @@ async function ouvrirReleveSauve(chantier, id, bouton, depuisRdv = false) {
 
 // Photo déjà rangée dans le chantier (prise avant, ou importée) : on fait le relevé dessus comme sur une photo neuve.
 // Claude propose les cotes à prendre, Jean-Phi les tape, règle la zone de travaux, puis « Ranger » garde le relevé.
-async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false) {
+async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false, suite = null) {
   const enCours = R.actif && (R.elements.length || Object.values(R.gabarit?.saisis || {}).some(Boolean));
-  if (enCours && !confirm('Un relevé est en cours. Le remplacer par un relevé sur cette photo ?')) return;
+  if (!suite && enCours && !confirm('Un relevé est en cours. Le remplacer par un relevé sur cette photo ?')) return;
   const texte = bouton.innerHTML;
   bouton.disabled = true; bouton.textContent = '⏳ J\'ouvre la photo…';
   try {
@@ -1643,7 +1643,7 @@ async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false) {
     for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
     const data = await traiterImage(new Blob([octets], { type: r.type || 'image/jpeg' }), false);
     afficher('releve');
-    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier, photoEnvoyee: true, facade: '',
+    await demarrerReleve({ ...(suite || {}), mode: 'photo', photo: data, elements: [], chantier, photoEnvoyee: true, facade: '',
       depuisRdv: (depuisRdv || ficheDepuisRdv) && !!V.actif });
     sauverBrouillonReleve();
     analyserPhotoReleve();
@@ -2780,6 +2780,8 @@ async function demarrerReleve(b) {
     redessinerReleve();
   }
   majReleve(false);
+  $('#releve-murs-liste').replaceChildren();
+  dessinerMursReleve().catch(() => {});
 }
 
 // Le relevé en cours est gardé (chiffré) dans la base de l'iPhone, assez grande pour la photo : si l'iPhone
@@ -4089,6 +4091,8 @@ async function enregistrerReleve(quitter = true) {
     V.releves = [...(V.releves || []).filter((x) => !String(x).startsWith(`${titre} (enregistré`)), ligne];
     sauverRdv();
   }
+  if (tousPartis) ficheMem.quand = 0; // la liste des murs sera relue
+  if (!quitter && tousPartis) dessinerMursReleve(true).catch(() => {});
   toast(tousPartis ? `💾 « ${titre} » enregistré dans ${chantier} · fiche › Relevés à reprendre` : '💾 Gardé sur l\'appareil : il partira dans le chantier dès que le réseau revient.', tousPartis ? 'ok' : '');
   if (!quitter) return true;
   if (R.depuisRdv && V.actif) { ouvrirRdv(); return true; }
@@ -4122,6 +4126,26 @@ async function autreMur() {
     $(galerie ? '#releve-galerie-input' : '#releve-input').click();
     if (!galerie) activerBoussole();
   };
+  // Photo déjà rangée dans le chantier (demande de Jean-Phi : « resélectionner une photo que j'avais déjà »).
+  const zonePhotos = el('div', { class: 'photos-chantier-choix' });
+  const photoChantier = async (bouton) => {
+    if (!chantier) { toast('Choisis d\'abord le chantier en bas du relevé.', 'erreur'); return; }
+    bouton.disabled = true; bouton.textContent = '⏳ Je cherche les photos…';
+    const f = await ficheReleve(chantier, true);
+    bouton.remove();
+    const vignettes = f?.rubriques.find((r) => r.titre === 'Photos')?.vignettes || [];
+    if (!vignettes.length) { zonePhotos.replaceChildren(el('p', { class: 'discret' }, f ? 'Pas encore de photo dans ce chantier.' : 'Photos indisponibles (réseau ?).')); return; }
+    zonePhotos.replaceChildren(el('p', { class: 'discret petit-texte' }, 'Touche la photo du mur à mesurer :'),
+      el('div', { class: 'photos-grille' }, ...vignettes.map((v) => {
+        const t = el('button', { class: 'photo-tuile', type: 'button', 'aria-label': 'Mesurer sur cette photo' },
+          el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: '' }), el('span', { class: 'photo-etat' }, '📏 Mesurer'));
+        t.onclick = async () => { await mesurerPhotoChantier(chantier, v, t, suite.depuisRdv, suite); fermer(); };
+        return t;
+      })));
+  };
+  const boutonPhotoChantier = el('button', { class: 'btn secondaire', type: 'button' }, '📂 Une photo déjà dans le chantier');
+  boutonPhotoChantier.onclick = () => photoChantier(boutonPhotoChantier);
+  zonePhotos.append(boutonPhotoChantier);
   const ordre = [actuelle, ...['pignon', 'mur', 'appentis', 'pan'].filter((t) => t !== actuelle && t !== 'libre')];
   const dessins = { pignon: '⌂', appentis: '◺', mur: '▭', pan: '▱', libre: '✏️' };
   const formes = ordre.filter((t) => t !== 'libre').map((t) => el('button', { class: `forme-choix${t === actuelle ? ' conseille' : ''}`, type: 'button', onclick: () => lancer(t) },
@@ -4134,12 +4158,59 @@ async function autreMur() {
       el('div', { class: 'deux-boutons' },
         el('button', { class: 'btn secondaire', type: 'button', onclick: () => photo(false) }, '📷 Prendre une photo'),
         el('button', { class: 'btn secondaire', type: 'button', onclick: () => photo(true) }, '🖼️ De ma galerie')),
+      zonePhotos,
       el('p', { class: 'etiquette' }, 'Sans photo : choisis la forme'),
       el('div', { class: 'formes-grille' }, ...formes,
         el('button', { class: `forme-choix${actuelle === 'libre' ? ' conseille' : ''}`, type: 'button', onclick: () => lancer('libre') },
           el('span', { class: 'forme-dessin' }, dessins.libre), el('b', {}, 'Forme à créer'), el('small', {}, actuelle === 'libre' ? 'comme celui-ci' : 'point par point'))),
       el('button', { class: 'lien', type: 'button', onclick: fermer }, 'Annuler')));
   document.body.append(fond);
+}
+
+// Fiche du chantier pour le relevé (murs déjà enregistrés + photos), gardée 2 minutes en mémoire.
+const ficheMem = { nom: '', fiche: null, quand: 0, enCours: null };
+async function ficheReleve(nom, force = false) {
+  if (!nom) return null;
+  if (!force && ficheMem.nom === nom && ficheMem.fiche && Date.now() - ficheMem.quand < 120000) return ficheMem.fiche;
+  if (ficheMem.enCours?.nom === nom) return ficheMem.enCours.p;
+  if (!navigator.onLine || !reglages.ok()) return lireJson(`fiche:${nom}`, null);
+  const p = appelServeur({ action: 'fiche', chantier: nom }, 60000).then((r) => {
+    Object.assign(ficheMem, { nom, fiche: r.fiche, quand: Date.now() });
+    return r.fiche;
+  }).catch(() => lireJson(`fiche:${nom}`, null)).finally(() => { ficheMem.enCours = null; });
+  ficheMem.enCours = { nom, p };
+  return p;
+}
+
+// « Les murs de ce chantier » (demande de Jean-Phi : « il faut que je retrouve mes deux pignons ») : tous les relevés
+// enregistrés du chantier, celui qu'on a sous les yeux en premier ; toucher un autre l'ouvre (celui-ci est enregistré avant).
+async function dessinerMursReleve(force = false) {
+  const zone = $('#releve-murs');
+  const chantier = $('#releve-chantier').value;
+  if (!chantier) { zone.classList.add('cache'); return; }
+  zone.classList.remove('cache');
+  const liste = $('#releve-murs-liste');
+  if (!liste.children.length) liste.replaceChildren(el('li', { class: 'discret' }, '⏳ Je cherche les murs déjà faits…'));
+  const f = await ficheReleve(chantier, force);
+  if ($('#releve-chantier').value !== chantier) return;
+  const titreActuel = $('#releve-facade').value.trim() || NOMS_GABARITS[R.gabarit.type] || 'Relevé';
+  const autres = (f?.releves || []).filter((r) => r.id !== R.id);
+  const ligne = (icone, titre, detail, action) => el('li', {}, el('button', action ? { class: 'mur', type: 'button', onclick: action } : { class: 'mur actuel', type: 'button', disabled: 'disabled' },
+    el('span', { class: 'mur-icone' }, icone), el('span', { class: 'mur-texte' }, el('b', {}, titre), el('small', {}, detail)),
+    el('span', { class: 'ouvrir' }, action ? 'Ouvrir ›' : 'à l\'écran')));
+  const items = [ligne('✏️', titreActuel, 'celui-ci', null)];
+  for (const r of autres) {
+    items.push(ligne('📏', r.titre, [new Date(r.maj).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), r.resume].filter(Boolean).join(' · '), async (ev) => {
+      const b = ev.currentTarget;
+      const enCours = R.elements.length || Object.values(R.gabarit.saisis).some(Boolean);
+      if (enCours) await enregistrerReleve(false);
+      R.actif = false; // déjà enregistré : pas de deuxième question
+      await ouvrirReleveSauve(chantier, r.id, b, R.depuisRdv);
+      R.actif = true;
+    }));
+  }
+  liste.replaceChildren(...items);
+  $('#releve-murs-nb').textContent = String(autres.length + 1);
 }
 
 // La photo du relevé est gardée dans le chantier (« 04 Photos ») dès que le chantier est connu : pas besoin d'y retourner.
@@ -5483,7 +5554,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (i < 3) $(`#zone-${ordre[i + 1]}`).focus(); else champ.blur();
     };
   }
-  $('#releve-chantier').onchange = () => { envoyerPhotoReleve(); sauverBrouillonReleve(); };
+  $('#releve-chantier').onchange = () => { envoyerPhotoReleve(); sauverBrouillonReleve(); $('#releve-murs-liste').replaceChildren(); dessinerMursReleve().catch(() => {}); };
+  $('#releve-facade').onchange = () => dessinerMursReleve().catch(() => {});
   $('#releve-fermer').onclick = () => {
     if (R.depuisRdv && V.actif) { ouvrirRdv(); return; }
     if (ecranPrecedent === 'fiche') afficher('fiche'); else retourOnglet();

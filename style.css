@@ -879,6 +879,19 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .propositions-ia > .btn { margin-top: 4px; }
 #releve-quantites li.travail { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 #releve-quantites li.travail .lien { font-size: 20px; padding: 0 4px; color: var(--texte-doux); }
+.murs-chantier { margin-top: 12px; }
+.murs-chantier h2 .nb { margin-left: 6px; }
+.murs-liste { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 6px; }
+.murs-liste .mur { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; padding: 10px 12px; border: 1px solid var(--bord); border-radius: 12px; background: var(--carte); color: var(--texte); text-align: left; cursor: pointer; font-size: 15px; }
+.murs-liste .mur.actuel { border-color: var(--bleu-vif); background: color-mix(in srgb, var(--bleu-vif) 8%, var(--carte)); cursor: default; opacity: 1; }
+.murs-liste .mur-icone { font-size: 22px; }
+.murs-liste .mur-texte { display: grid; min-width: 0; }
+.murs-liste .mur-texte b, .murs-liste .mur-texte small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.murs-liste .mur-texte small { color: var(--texte-doux); font-size: 13px; }
+.murs-liste .ouvrir { color: var(--bleu-vif); font-weight: 600; font-size: 14px; }
+.murs-liste .mur.actuel .ouvrir { color: var(--texte-doux); font-weight: 400; }
+.photos-chantier-choix { display: grid; gap: 8px; }
+.photos-chantier-choix .photos-grille { grid-template-columns: repeat(3, 1fr); max-height: 40vh; overflow-y: auto; }
 .travaux-plus .puces { margin: 8px 0; }
 .travaux-plus .puce { font-size: 14px; white-space: nowrap; flex: none; }
 .travaux-liste { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
