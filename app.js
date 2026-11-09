@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.19.4';
+const VERSION = '1.20.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -4727,6 +4727,339 @@ async function copierMetre() {
   try { await navigator.clipboard.writeText(texteMetre()); toast('Métré copié 📋', 'ok'); } catch { toast('Copie impossible.', 'erreur'); }
 }
 
+// ===================== Devis intelligent (1.20) =====================
+// Demande de Jean-Phi (09/11) : « je veux que le logiciel me comprenne », avec tous les termes du métier, même un
+// terme mal dit, et qu'il me pose des questions. Il parle (ou tape) ; Claude (serveur 1.13, action assistantDevis)
+// répond, corrige les termes, pose ses questions (réponses toutes prêtes à toucher) et tient à jour les lignes
+// chiffrées avec ses tarifs. Les lignes restent modifiables à la main. « Devis prêt » range le devis dans le chantier
+// et laisse une note : l'assistant le saisit en brouillon dans ProGBat. Rien ne part chez le client.
+const D = { id: '', chantier: '', messages: [], lignes: [], objet: '', tva: 0, mentions: [], questions: [], complet: false,
+  contexte: '', retour: null, enCours: false, maj: 0 };
+const cleDevis = (nom) => `devis:${nom}`;
+const nombreDevis = (v) => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+const eurosDevis = (v) => `${(Math.round(v * 100) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+
+function etatDevis() {
+  const { retour, enCours, questions, ...reste } = D;
+  return { ...reste, questions };
+}
+
+function garderDevis() {
+  D.maj = Date.now();
+  if (D.chantier) ecrireJson(cleDevis(D.chantier), etatDevis());
+  ecrireJson('devis-en-cours', D.chantier || null);
+}
+
+async function ouvrirDevis(chantier = '', retour = null, contexte = '') {
+  D.retour = retour;
+  chantier = chantier || D.chantier || lireJson('devis-en-cours', '') || '';
+  chargerDevisLocal(chantier);
+  if (contexte) D.contexte = contexte;
+  remplirSelectChantiers($('#devis-chantier'), D.chantier, '— Choisis le chantier —');
+  $('#devis-retour').textContent = retour ? '‹ Retour' : '‹ Accueil';
+  afficher('devis');
+  dessinerDevis();
+  if (D.chantier && !D.messages.length && !D.lignes.length) reprendreDevisServeur(D.chantier);
+  if (!D.messages.length) setTimeout(() => $('#devis-texte').focus(), 300);
+}
+
+function chargerDevisLocal(nom) {
+  const s = nom ? lireJson(cleDevis(nom), null) : null;
+  Object.assign(D, { id: '', chantier: nom, messages: [], lignes: [], objet: '', tva: 0, mentions: [], questions: [], complet: false, contexte: '' }, s || {});
+  if (!D.id) D.id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  D.chantier = nom;
+}
+
+// Un devis commencé sur l'autre appareil (iPhone ↔ PC) : on reprend le dernier enregistré dans le chantier.
+async function reprendreDevisServeur(nom) {
+  if (!navigator.onLine || !reglages.ok()) return;
+  try {
+    const l = (await appelServeur({ action: 'lireDevis', chantier: nom }, 60000)).devis || [];
+    if (!l.length || D.chantier !== nom || D.messages.length || D.lignes.length) return;
+    const r = await appelServeur({ action: 'lireDevis', chantier: nom, id: l[0].id }, 60000);
+    if (D.chantier !== nom || D.messages.length || D.lignes.length || !r.devis) return;
+    Object.assign(D, r.devis, { chantier: nom });
+    garderDevis();
+    dessinerDevis();
+    toast('Devis repris là où tu l\'avais laissé ✅', 'ok');
+  } catch (e) { console.warn('lireDevis', e); }
+}
+
+function totauxDevis() {
+  let ht = 0, options = 0;
+  for (const l of D.lignes) {
+    const t = nombreDevis(l.quantite) * nombreDevis(l.prixHT);
+    if (l.option) options += t; else ht += t;
+  }
+  const tva = ht * (Number(D.tva) || 0) / 100;
+  return { ht, tva, ttc: ht + tva, options };
+}
+
+function dessinerDevis() {
+  $('#devis-objet').value = D.objet || '';
+  $('#devis-tva').value = String(Number(D.tva) || 0);
+  const pasDeChantier = !D.chantier;
+  $('#devis-etat').textContent = pasDeChantier ? '' : D.complet ? '✅ complet' : D.lignes.length ? '✏️ en cours' : '';
+  dessinerFilDevis();
+  dessinerQuestionsDevis();
+  dessinerLignesDevis();
+  $('#devis-valider').disabled = pasDeChantier || !D.lignes.length || D.enCours;
+}
+
+function dessinerFilDevis() {
+  const fil = $('#devis-fil');
+  const bulles = [];
+  if (!D.messages.length) {
+    bulles.push(el('div', { class: 'bulle claude' }, el('b', {}, '🧠 '),
+      D.chantier ? `Je t'écoute pour ${D.chantier}. Dis-moi avec tes mots ce que veut le client : les travaux, les bois et leurs sections, les matériaux, les couleurs, les mesures. Si un mot n'est pas le bon, je comprendrai, et je te poserai mes questions.`
+        : 'Choisis d\'abord le chantier ci-dessus, puis dis-moi ce que veut le client.'));
+  }
+  for (const m of D.messages) {
+    const b = el('div', { class: `bulle ${m.qui === 'claude' ? 'claude' : 'moi'}` }, m.qui === 'claude' ? el('b', {}, '🧠 ') : null, m.texte);
+    if (m.corrections?.length) {
+      b.append(el('ul', { class: 'corrections' }, ...m.corrections.map((c) => el('li', {}, '📝 « ', el('s', {}, c.dit), ' » → « ', el('b', {}, c.compris), ' »'))));
+    }
+    bulles.push(b);
+  }
+  if (D.enCours) bulles.push(el('div', { class: 'bulle claude attente' }, '🧠 Je réfléchis… (20 à 60 secondes)'));
+  fil.replaceChildren(...bulles);
+  fil.scrollTop = fil.scrollHeight;
+}
+
+function dessinerQuestionsDevis() {
+  const zone = $('#devis-questions');
+  if (D.enCours || !D.questions?.length) { zone.replaceChildren(); return; }
+  zone.replaceChildren(el('p', { class: 'etiquette' }, '❓ Mes questions : touche une réponse, ou réponds avec tes mots en dessous'),
+    ...D.questions.map((q) => el('div', { class: 'devis-question' }, el('p', {}, q.question),
+      (q.choix || []).length ? el('div', { class: 'puces' }, ...q.choix.map((c) => el('button', { type: 'button', class: 'puce', onclick: () => repondreQuestion(q, c) }, c))) : null)));
+}
+
+// Réponses touchées : on les garde ensemble et on les envoie dès que toutes les questions à choix ont une réponse
+// (ou tout de suite s'il n'y en a qu'une).
+const reponsesDevis = new Map();
+function repondreQuestion(q, choix) {
+  reponsesDevis.set(q.question, choix);
+  for (const b of $$('#devis-questions .devis-question')) {
+    if (b.firstChild.textContent !== q.question) continue;
+    for (const p of b.querySelectorAll('.puce')) p.classList.toggle('active', p.textContent === choix);
+  }
+  const aChoix = D.questions.filter((x) => (x.choix || []).length);
+  if (aChoix.every((x) => reponsesDevis.has(x.question))) {
+    const texte = [...reponsesDevis].map(([question, r]) => `${question} → ${r}`).join('\n');
+    const libre = $('#devis-texte').value.trim();
+    reponsesDevis.clear();
+    $('#devis-texte').value = '';
+    envoyerDevis(libre ? `${texte}\n${libre}` : texte);
+  } else toast('Noté ✅ Réponds aux autres questions, ou touche « Envoyer ».', 'ok');
+}
+
+function dessinerLignesDevis() {
+  const zone = $('#devis-lignes');
+  if (!D.lignes.length) {
+    zone.replaceChildren(el('p', { class: 'etat-vide petit' }, 'Les lignes du devis s\'affichent ici au fur et à mesure.'));
+  } else {
+    const parties = [];
+    for (const l of D.lignes) {
+      const p = l.partie || 'Travaux';
+      let g = parties.find((x) => x.nom === p);
+      if (!g) parties.push(g = { nom: p, lignes: [] });
+      g.lignes.push(l);
+    }
+    zone.replaceChildren(...parties.map((g) => {
+      const total = totalPartieDevis(g.nom);
+      return el('div', { class: 'devis-partie' }, el('h3', {}, el('span', {}, g.nom), el('span', { class: 'devis-partie-total', 'data-partie': g.nom }, eurosDevis(total))),
+        ...g.lignes.map((l) => ligneDevisEl(l)));
+    }));
+  }
+  const m = $('#devis-mentions');
+  m.replaceChildren(...(D.mentions || []).map((t, i) => el('p', { class: 'mention' }, `ℹ️ ${t} `,
+    el('button', { class: 'lien', type: 'button', onclick: () => { D.mentions.splice(i, 1); apresEditionDevis(true); } }, 'retirer'))));
+  dessinerTotauxDevis();
+}
+
+function ligneDevisEl(l) {
+  const champ = (cle, attrs) => {
+    const i = el('input', { type: 'text', inputmode: cle === 'unite' ? 'text' : 'decimal', class: `devis-${cle}`, 'aria-label': attrs, autocomplete: 'off' });
+    i.value = cle === 'unite' ? (l.unite || '') : String(l[cle] ?? '').replace('.', ',');
+    i.onchange = () => { l[cle] = cle === 'unite' ? i.value.trim() : nombreDevis(i.value); l.modifie = true; apresEditionDevis(); };
+    return i;
+  };
+  const desi = el('textarea', { rows: String(Math.max(2, Math.ceil((l.designation || '').length / 34))), class: 'devis-designation', 'aria-label': 'Désignation' });
+  desi.value = l.designation || '';
+  desi.onchange = () => { l.designation = desi.value.trim(); l.modifie = true; apresEditionDevis(); };
+  const total = el('span', { class: 'devis-total' }, eurosDevis(nombreDevis(l.quantite) * nombreDevis(l.prixHT)));
+  const opt = el('button', { type: 'button', class: `lien ${l.option ? 'actif' : ''}`, title: 'Ligne en option (non comptée dans le total)',
+    onclick: () => { l.option = !l.option; l.modifie = true; apresEditionDevis(true); } }, l.option ? '⭐ En option' : 'Option ?');
+  const suppr = el('button', { type: 'button', class: 'lien danger', 'aria-label': 'Retirer la ligne',
+    onclick: () => { if (confirm(`Retirer « ${l.designation.slice(0, 60)} » ?`)) { D.lignes.splice(D.lignes.indexOf(l), 1); apresEditionDevis(true); } } }, '✕');
+  return el('div', { class: `devis-ligne ${l.option ? 'option' : ''} ${l.prixEstime ? 'estime' : ''}` }, desi,
+    el('div', { class: 'devis-chiffres' }, champ('quantite', 'Quantité'), champ('unite', 'Unité'), el('span', { class: 'fois' }, '×'),
+      champ('prixHT', 'Prix unitaire HT'), total),
+    el('div', { class: 'devis-ligne-pied' }, l.prixEstime ? el('small', { class: 'estime' }, '⚠️ prix estimé, à vérifier') : el('small', {}, l.source || ''), opt, suppr));
+}
+
+function dessinerTotauxDevis() {
+  const t = totauxDevis();
+  const lignes = [['Total HT', eurosDevis(t.ht)]];
+  if (Number(D.tva)) lignes.push([`TVA ${String(D.tva).replace('.', ',')} %`, eurosDevis(t.tva)], ['Total TTC', eurosDevis(t.ttc)]);
+  else lignes.push(['TVA', 'à choisir']);
+  if (t.options) lignes.push(['Options (non comptées)', eurosDevis(t.options)]);
+  if (Number(D.tva)) lignes.push(['Acompte 30 % à la signature', eurosDevis(t.ttc * 0.3)]);
+  $('#devis-totaux').replaceChildren(...lignes.map(([a, b], i) => el('div', { class: i === 2 && Number(D.tva) ? 'fort' : '' }, el('span', {}, a), el('b', {}, b))));
+}
+
+let minuteurDevis = 0;
+function apresEditionDevis(redessiner = false) {
+  if (redessiner) dessinerLignesDevis(); else { dessinerTotauxDevis(); dessinerLignesTotauxSeuls(); }
+  garderDevis();
+  clearTimeout(minuteurDevis);
+  minuteurDevis = setTimeout(() => sauverDevisServeur(false).catch(() => {}), 5000);
+}
+// Après une saisie dans une case : on remet à jour les montants sans redessiner (le curseur reste où il est).
+function dessinerLignesTotauxSeuls() {
+  for (const ligne of $$('#devis-lignes .devis-ligne')) {
+    const q = nombreDevis(ligne.querySelector('.devis-quantite').value), p = nombreDevis(ligne.querySelector('.devis-prixHT').value);
+    ligne.querySelector('.devis-total').textContent = eurosDevis(q * p);
+  }
+  for (const h of $$('#devis-lignes .devis-partie-total')) h.textContent = eurosDevis(totalPartieDevis(h.dataset.partie));
+}
+// Total d'une partie sans ses options ; une partie qui n'a que des options affiche le total des options.
+function totalPartieDevis(nom) {
+  const lignes = D.lignes.filter((l) => (l.partie || 'Travaux') === nom);
+  const somme = (ls) => ls.reduce((s, l) => s + nombreDevis(l.quantite) * nombreDevis(l.prixHT), 0);
+  const fermes = lignes.filter((l) => !l.option);
+  return fermes.length ? somme(fermes) : somme(lignes);
+}
+
+async function envoyerDevis(texteForce) {
+  const zone = $('#devis-texte');
+  const texte = (texteForce ?? zone.value).trim();
+  if (!D.chantier) { toast('Choisis d\'abord le chantier.', 'erreur'); $('#devis-chantier').focus(); return; }
+  if (!texte) { toast('Dis-moi d\'abord ce que veut le client.', 'erreur'); zone.focus(); return; }
+  if (D.enCours) return;
+  if (!navigator.onLine || !reglages.ok()) { toast('Pas de réseau : ton texte est gardé, renvoie-le plus tard.', 'erreur'); return; }
+  if (texteForce === undefined) zone.value = '';
+  D.messages.push({ qui: 'moi', texte, quand: Date.now() });
+  D.enCours = true;
+  D.questions = [];
+  garderDevis();
+  dessinerDevis();
+  const chantier = D.chantier;
+  try {
+    const r = await appelServeur({ action: 'assistantDevis', chantier, contexte: D.contexte,
+      messages: D.messages.map(({ qui, texte: t }) => ({ qui, texte: t })), objet: D.objet, tva: Number(D.tva) || 0,
+      mentions: D.mentions, lignes: D.lignes }, 170000);
+    if (D.chantier !== chantier) return;
+    const c = r.devis || {};
+    D.messages.push({ qui: 'claude', texte: c.reponse || 'C\'est noté.', corrections: c.corrections || [], quand: Date.now() });
+    D.lignes = (c.lignes || []).map((l) => ({ ...l, quantite: Number(l.quantite) || 0, prixHT: Number(l.prixHT) || 0 }));
+    D.questions = c.questions || [];
+    D.mentions = c.mentions || [];
+    if (c.objet) D.objet = c.objet;
+    if ([5.5, 10, 20].includes(Number(c.tva))) D.tva = Number(c.tva);
+    D.complet = !!c.complet;
+    garderDevis();
+    sauverDevisServeur(false).catch(() => {});
+  } catch (e) {
+    console.warn('assistantDevis', e);
+    D.messages.pop();
+    if (!zone.value) zone.value = texte;
+    toast(/Action inconnue/.test(e.message) ? 'Le serveur n\'est pas encore à jour (version 1.13 à déployer).' : `Claude n'a pas pu répondre : ${e.message}`, 'erreur');
+  } finally {
+    D.enCours = false;
+    if (ecranCourant === 'devis') dessinerDevis();
+  }
+}
+
+async function sauverDevisServeur(valider) {
+  if (!D.chantier || (!D.lignes.length && !D.messages.length)) return null;
+  const t = totauxDevis();
+  const donnees = { action: 'sauverDevis', chantier: D.chantier, id: D.id, devis: etatDevis(), totalHT: Math.round(t.ht * 100) / 100,
+    valider, texte: valider ? texteDevis() : '', date: Date.now() };
+  if (valider) return mettreEnFile([donnees]);
+  return appelServeur(donnees, 60000);
+}
+
+function texteDevis() {
+  const t = totauxDevis();
+  const l = [`DEVIS PRÉPARÉ DANS L'APPLI – ${D.chantier}`, `Objet : ${D.objet || '—'}`, `TVA : ${D.tva ? `${D.tva} %` : 'à choisir'}`,
+    `Préparé le ${new Date().toLocaleString('fr-FR')}`, ''];
+  let partie = null;
+  for (const x of D.lignes) {
+    if (x.partie !== partie) { partie = x.partie; l.push('', `== ${partie || 'Travaux'} ==`); }
+    l.push(`${x.option ? '[OPTION] ' : ''}${x.designation} | ${String(x.quantite).replace('.', ',')} ${x.unite || ''} × ${eurosDevis(nombreDevis(x.prixHT))} HT = ${eurosDevis(nombreDevis(x.quantite) * nombreDevis(x.prixHT))}${x.prixEstime ? ' (prix estimé)' : ''}`);
+  }
+  l.push('', ...(D.mentions || []).map((m) => `Mention : ${m}`), '', `Total HT : ${eurosDevis(t.ht)}`);
+  if (D.tva) l.push(`TVA ${D.tva} % : ${eurosDevis(t.tva)}`, `Total TTC : ${eurosDevis(t.ttc)}`);
+  if (t.options) l.push(`Options (non comptées) : ${eurosDevis(t.options)} HT`);
+  l.push('', 'Conversation avec Claude :', ...D.messages.map((m) => `${m.qui === 'claude' ? 'Claude' : 'Jean-Phi'} : ${m.texte}`));
+  return l.join('\n');
+}
+
+async function validerDevis() {
+  if (!D.chantier || !D.lignes.length) return;
+  if (!Number(D.tva)) { toast('Choisis d\'abord la TVA.', 'erreur'); $('#devis-tva').focus(); return; }
+  const estimes = D.lignes.filter((l) => l.prixEstime).length;
+  if ((D.questions.length || estimes) && !confirm(`${D.questions.length ? `Il reste ${D.questions.length} question(s) sans réponse. ` : ''}${estimes ? `${estimes} prix sont estimés. ` : ''}Mettre le devis dans ProGBat quand même ? (en brouillon, tu pourras corriger)`)) return;
+  const { tousPartis } = await sauverDevisServeur(true);
+  D.complet = true;
+  garderDevis();
+  dessinerDevis();
+  toast(tousPartis ? 'Devis rangé dans le chantier ✅ Je le saisis en brouillon dans ProGBat.' : 'Gardé : il partira dès qu\'il y aura du réseau.', tousPartis ? 'ok' : '');
+}
+
+let reconnaissanceDevis = null;
+function parlerDevis() {
+  const zone = $('#devis-texte'), bouton = $('#devis-micro');
+  if (reconnaissanceDevis) { reconnaissanceDevis.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { zone.focus(); toast('Touche le micro 🎤 du clavier pour parler.'); return; }
+  try {
+    const r = new SR();
+    r.lang = 'fr-FR';
+    r.interimResults = true;
+    r.continuous = true;
+    const debut = zone.value ? `${zone.value} ` : '';
+    r.onresult = (ev) => { zone.value = debut + [...ev.results].map((x) => x[0].transcript).join(' '); };
+    r.onerror = () => { zone.focus(); };
+    r.onend = () => { reconnaissanceDevis = null; bouton.textContent = '🎤 Parler'; if (zone.value.trim()) envoyerDevis(); };
+    r.start();
+    reconnaissanceDevis = r;
+    bouton.textContent = '⏹ J\'ai fini';
+  } catch { zone.focus(); toast('Touche le micro 🎤 du clavier pour parler.'); }
+}
+
+function brancherDevis() {
+  $('#btn-devis').onclick = () => ouvrirDevis();
+  $('#fiche-devis-ia').onclick = () => ouvrirDevis(ficheCourante?.nom || '', () => afficher('fiche'));
+  $('#rdv-devis-ia').onclick = () => {
+    const nom = assurerChantierRdv();
+    if (nom) ouvrirDevis(nom, ouvrirRdv, texteRdv());
+  };
+  $('#devis-retour').onclick = () => { if (reconnaissanceDevis) reconnaissanceDevis.stop(); if (D.retour) D.retour(); else ouvrirOnglet('accueil'); };
+  $('#devis-chantier').onchange = (e) => {
+    const nom = e.target.value;
+    chargerDevisLocal(nom);
+    dessinerDevis();
+    if (nom && !D.messages.length && !D.lignes.length) reprendreDevisServeur(nom);
+  };
+  $('#devis-envoyer').onclick = () => envoyerDevis();
+  $('#devis-micro').onclick = parlerDevis;
+  $('#devis-texte').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); envoyerDevis(); }
+  });
+  $('#devis-objet').onchange = (e) => { D.objet = e.target.value.trim(); apresEditionDevis(); };
+  $('#devis-tva').onchange = (e) => { D.tva = Number(e.target.value) || 0; apresEditionDevis(); };
+  $('#devis-ajouter').onclick = () => {
+    const partie = D.lignes.length ? D.lignes[D.lignes.length - 1].partie : 'Travaux';
+    D.lignes.push({ partie, designation: '', quantite: 1, unite: 'u', prixHT: 0, option: false, prixEstime: false, source: 'ajoutée à la main', modifie: true });
+    apresEditionDevis(true);
+    const z = $$('#devis-lignes .devis-designation');
+    z[z.length - 1]?.focus();
+  };
+  $('#devis-valider').onclick = validerDevis;
+}
+
 // ===================== Recherche globale =====================
 // Tout ce que le téléphone connaît déjà (marche sans réseau) : chantiers, clients, adresses, documents et notes
 // des fiches ouvertes, choses à faire, rendez-vous. Sans accents ni majuscules, tous les mots doivent y être.
@@ -5637,6 +5970,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#btn-deposer').onclick = () => nouveauDocument('depot');
   // Photos du chantier
   $('#btn-photos').onclick = () => ouvrirPhotos();
+  brancherDevis();
   $('#photos-retour').onclick = () => { $('#photos-choix').classList.add('cache'); if (P.retour) P.retour(); else ouvrirOnglet('accueil'); };
   $('#photos-chantier').onchange = (e) => { P.chantier = e.target.value; P.fiche = null; P.locales = []; $('#photos-gps').textContent = ''; dessinerPhotos(); if (P.chantier) chargerPhotos(P.chantier); };
   $('#photos-prendre').onclick = () => { $('#photos-prendre-input').click(); activerBoussole(); };

@@ -1058,3 +1058,64 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 @media (min-width: 1100px) and (prefers-color-scheme: dark) {
   .barre-onglets::before { background-image: url(logo-blanc.svg); }
 }
+
+/* ===================== Devis intelligent (1.20) ===================== */
+.deposer.devis-ia { background: linear-gradient(135deg, #e9e3fb, #c9bdf2); color: #2a1f55; }
+@media (prefers-color-scheme: dark) { .deposer.devis-ia { background: linear-gradient(135deg, #3a3060, #2a2148); color: #f1edff; } }
+#ecran-devis { padding-bottom: 110px; }
+#ecran-devis .champ select { width: 100%; }
+.devis-corps { display: grid; gap: 14px; }
+.devis-corps .carte { margin: 0; }
+.devis-fil { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow-y: auto; padding: 2px; }
+.bulle { max-width: 88%; padding: 10px 14px; border-radius: 18px; font-size: 16px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.bulle.moi { align-self: flex-end; background: var(--bleu); color: #fff; border-bottom-right-radius: 6px; }
+.bulle.claude { align-self: flex-start; background: var(--fond); border-bottom-left-radius: 6px; }
+.bulle.attente { color: var(--texte-doux); font-style: italic; }
+.bulle .corrections { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--bord); font-size: 14px; }
+.bulle .corrections li { margin: 2px 0; }
+.bulle .corrections s { color: var(--texte-doux); }
+.devis-questions:not(:empty) { margin-top: 12px; padding: 12px; border-radius: 14px; background: var(--orange-clair); }
+.devis-questions .etiquette { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--texte-doux); }
+.devis-question { margin: 0 0 12px; }
+.devis-question:last-child { margin-bottom: 0; }
+.devis-question p { margin: 0 0 8px; font-weight: 600; }
+.devis-question .puces { display: flex; flex-wrap: wrap; gap: 8px; }
+.devis-question .puce { white-space: normal; text-align: left; }
+.devis-saisie { margin-top: 12px; }
+.devis-saisie textarea { width: 100%; box-sizing: border-box; font-size: 16px; }
+.devis-boutons { display: grid; grid-template-columns: 1fr 1.3fr; gap: 10px; margin-top: 8px; }
+.devis-boutons .btn { margin: 0; }
+.devis-apercu h2 { margin-top: 0; }
+.devis-partie { margin: 14px 0 0; }
+.devis-partie h3 { display: flex; justify-content: space-between; gap: 10px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--bleu); font-size: 16px; color: var(--bleu); }
+.devis-ligne { padding: 10px; margin-bottom: 8px; border-radius: 12px; background: var(--fond); }
+.devis-ligne.option { border: 2px dashed var(--or); }
+.devis-ligne.estime { box-shadow: inset 3px 0 0 var(--orange); }
+.devis-ligne textarea { width: 100%; box-sizing: border-box; resize: vertical; font-size: 15px; padding: 8px; }
+.devis-chiffres { display: grid; grid-template-columns: 58px 46px 10px 74px minmax(0, 1fr); gap: 4px; align-items: center; margin-top: 6px; }
+.devis-total { white-space: nowrap; font-size: 15px; }
+.devis-chiffres input { padding: 8px 6px; font-size: 16px; text-align: right; min-width: 0; }
+.devis-chiffres .devis-unite { text-align: center; }
+.devis-chiffres .fois { text-align: center; color: var(--texte-doux); }
+.devis-total { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.devis-ligne-pied { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.devis-ligne-pied small { flex: 1; color: var(--texte-doux); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.devis-ligne-pied small.estime { color: var(--orange); white-space: normal; }
+.devis-ligne-pied .lien { font-size: 14px; padding: 4px; }
+.devis-ligne-pied .lien.actif { color: var(--or); font-weight: 700; }
+.devis-ligne-pied .lien.danger { color: var(--rouge); }
+.devis-mentions .mention { margin: 8px 0 0; font-size: 14px; color: var(--texte-doux); }
+.devis-mentions .lien { font-size: 13px; }
+.devis-totaux { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--bord); display: grid; gap: 4px; }
+.devis-totaux div { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.devis-totaux div.fort { font-size: 18px; }
+.devis-totaux div:first-child b { font-size: 17px; }
+#rdv-devis-ia { margin: 14px 0 4px; }
+@media (min-width: 1100px) {
+  #ecran-accueil > #btn-photos, #ecran-accueil > #btn-devis { grid-column: span 6; }
+  #ecran-devis { max-width: 1500px; }
+  .devis-corps { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; gap: 20px; }
+  .devis-discussion { position: sticky; top: 12px; }
+  .devis-fil { max-height: calc(100vh - 460px); min-height: 160px; }
+  #ecran-devis .pied-fixe { padding-left: max(16px, calc(50% - 734px)); padding-right: max(16px, calc(50% - 734px)); }
+}

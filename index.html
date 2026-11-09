@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.19.4">
+  <meta name="version-appli" content="1.20.0">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -94,6 +94,15 @@
       <span class="deposer-texte">
         <span class="titre">Photos du chantier</span>
         <span class="sous-titre">Voir, prendre, ajouter de la galerie, mesurer</span>
+      </span>
+      <span class="chevron">›</span>
+    </button>
+
+    <button id="btn-devis" class="deposer devis-ia">
+      <span class="deposer-ico">🧠</span>
+      <span class="deposer-texte">
+        <span class="titre">Devis intelligent</span>
+        <span class="sous-titre">Dis-moi ce que veut le client : je pose les questions et je chiffre</span>
       </span>
       <span class="chevron">›</span>
     </button>
@@ -207,6 +216,7 @@
       <button id="fiche-photo" class="bouton-rond"><span>📷</span>Photos</button>
       <button id="fiche-galerie" class="bouton-rond"><span>🖼️</span>Galerie</button>
       <button id="fiche-releve" class="bouton-rond"><span>📏</span>Relevé</button>
+      <button id="fiche-devis-ia" class="bouton-rond"><span>🧠</span>Devis</button>
       <button id="fiche-note" class="bouton-rond"><span>🎙️</span>Note</button>
       <a id="fiche-drive" class="bouton-rond" target="_blank" rel="noopener"><span>📁</span>Dossier</a>
     </div>
@@ -414,10 +424,53 @@
       <ul id="rdv-releves" class="resultats"></ul>
     </section>
 
+    <button id="rdv-devis-ia" class="photos-gros petit" type="button"><span>🧠</span>Faire le devis avec Claude maintenant</button>
+
     <button id="rdv-abandonner" class="lien discret archiver">Abandonner ce rendez-vous</button>
 
     <div class="pied-fixe">
       <button id="rdv-terminer" class="btn principal">📝 Terminer et préparer le devis</button>
+    </div>
+  </section>
+
+  <!-- ===================== DEVIS INTELLIGENT (1.20) ===================== -->
+  <section id="ecran-devis" class="ecran plein cache">
+    <div class="barre-haut">
+      <button id="devis-retour" class="retour">‹ Retour</button>
+      <strong>🧠 Devis intelligent</strong>
+      <span id="devis-etat" class="discret petit-texte"></span>
+    </div>
+    <div class="champ"><select id="devis-chantier" aria-label="Chantier du devis"></select></div>
+
+    <div class="devis-corps">
+      <section class="carte devis-discussion">
+        <div id="devis-fil" class="devis-fil" aria-live="polite"></div>
+        <div id="devis-questions" class="devis-questions"></div>
+        <div class="devis-saisie">
+          <textarea id="devis-texte" rows="3" placeholder="Dis-moi ce que veut le client, avec tes mots. Ex. : « refaire les rives en 63 par 175, bardage noir côté route, 2 descentes »"></textarea>
+          <div class="devis-boutons">
+            <button id="devis-micro" class="btn secondaire" type="button">🎤 Parler</button>
+            <button id="devis-envoyer" class="btn principal" type="button">Envoyer ›</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="carte devis-apercu">
+        <h2>📝 Le devis</h2>
+        <div class="deux-champs">
+          <div class="champ"><label for="devis-objet">Objet</label><input id="devis-objet" type="text" autocomplete="off" placeholder="ex. Bardage et reprise de façades"></div>
+          <div class="champ"><label for="devis-tva">TVA</label>
+            <select id="devis-tva"><option value="0">À choisir</option><option value="10">10 % (logement de plus de 2 ans)</option><option value="20">20 % (hangar, pro, neuf)</option><option value="5.5">5,5 % (rénovation énergétique)</option></select></div>
+        </div>
+        <div id="devis-lignes" class="devis-lignes"></div>
+        <button id="devis-ajouter" class="lien" type="button">➕ Ajouter une ligne à la main</button>
+        <div id="devis-mentions" class="devis-mentions"></div>
+        <div id="devis-totaux" class="devis-totaux"></div>
+      </section>
+    </div>
+
+    <div class="pied-fixe">
+      <button id="devis-valider" class="btn principal">✅ Devis prêt : à saisir dans ProGBat</button>
     </div>
   </section>
 
