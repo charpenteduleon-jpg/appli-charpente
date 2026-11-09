@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.19.2';
+const VERSION = '1.19.3';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1618,14 +1618,19 @@ async function ouvrirReleveSauve(chantier, id, bouton, depuisRdv = false) {
   if (enCours && R.id !== id && !confirm('Un autre relevé est en cours. L\'ouvrir quand même ? Celui en cours sera remplacé.')) return;
   const texte = bouton?.querySelector('.ouvrir');
   if (texte) texte.textContent = 'Ouverture…';
+  const ecranAvant = ecranCourant;
   try {
     const r = await appelServeur({ action: 'lireReleve', chantier, id }, 60000);
+    // Serveur avant 1.12 : un relevé déjà ouvert une fois revenait vide (« doublon »).
+    if (!r.releve) throw new Error('le serveur ne l\'a pas renvoyé. Réessaie dans un instant');
     remplirSelectChantiers($('#releve-chantier'), chantier, '— Choisir le chantier —');
     afficher('releve');
     await demarrerReleve({ ...r.releve, id, chantier, depuisRdv: (depuisRdv || ficheDepuisRdv) && !!V.actif, photoEnvoyee: true });
-    toast('Relevé rouvert : corrige ce qu\'il faut, puis refais la feuille ✅', 'ok');
+    toast(`${r.releve.facade || 'Relevé'} rouvert : corrige ce qu'il faut, puis refais la feuille ✅`, 'ok');
   } catch (e) {
-    toast(`Relevé impossible à ouvrir : ${e.message}`, 'erreur');
+    // On ne laisse pas Jean-Phi sur un écran vide : retour là où il était.
+    if (ecranCourant !== ecranAvant) afficher(ecranAvant);
+    toast(`Je n'arrive pas à rouvrir ce relevé : ${e.message}`, 'erreur');
   } finally { if (texte) texte.textContent = 'Ouvrir ›'; }
 }
 
@@ -1638,6 +1643,7 @@ async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false, suit
   bouton.disabled = true; bouton.textContent = '⏳ J\'ouvre la photo…';
   try {
     const r = await appelServeur({ action: 'photoChantier', chantier, id: v.id }, 90000);
+    if (!r.data) throw new Error('le serveur ne l\'a pas renvoyée. Réessaie dans un instant');
     const binaire = atob(r.data);
     const octets = new Uint8Array(binaire.length);
     for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
@@ -2731,6 +2737,11 @@ function lineairesDepuisContour(s) {
 }
 
 async function demarrerReleve(b) {
+  // Relevé « photo » sans photo (donnée abîmée) : on le reprend en saisie s'il a une forme, sinon on le dit clairement.
+  if ((b.mode || 'photo') === 'photo' && !b.photo) {
+    if (b.gabarit?.type) b = { ...b, mode: 'saisie' };
+    else throw new Error('la photo de ce relevé manque');
+  }
   R.mode = b.mode || 'photo';
   R.actif = true;
   R.photo = b.photo || '';
