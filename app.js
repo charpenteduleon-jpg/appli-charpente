@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.20.0';
+const VERSION = '1.21.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -4733,14 +4733,18 @@ async function copierMetre() {
 // répond, corrige les termes, pose ses questions (réponses toutes prêtes à toucher) et tient à jour les lignes
 // chiffrées avec ses tarifs. Les lignes restent modifiables à la main. « Devis prêt » range le devis dans le chantier
 // et laisse une note : l'assistant le saisit en brouillon dans ProGBat. Rien ne part chez le client.
+// 1.21 : versions (V1 = devis déjà fait, souvent recopié de ProGBat par l'assistant ; V2, V3… = changements demandés
+// par le client). Une nouvelle version reprend toutes les lignes (« reprise »), modifiables, et Claude ajoute le reste.
 const D = { id: '', chantier: '', messages: [], lignes: [], objet: '', tva: 0, mentions: [], questions: [], complet: false,
-  contexte: '', retour: null, enCours: false, maj: 0 };
+  contexte: '', retour: null, enCours: false, maj: 0, version: 1, ref: '', base: '', source: 'appli', liste: [] };
+const VIDE_DEVIS = () => ({ id: '', messages: [], lignes: [], objet: '', tva: 0, mentions: [], questions: [], complet: false, contexte: '',
+  version: 1, ref: '', base: '', source: 'appli' });
 const cleDevis = (nom) => `devis:${nom}`;
 const nombreDevis = (v) => { const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const eurosDevis = (v) => `${(Math.round(v * 100) / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
 function etatDevis() {
-  const { retour, enCours, questions, ...reste } = D;
+  const { retour, enCours, questions, liste, ...reste } = D;
   return { ...reste, questions };
 }
 
@@ -4759,30 +4763,113 @@ async function ouvrirDevis(chantier = '', retour = null, contexte = '') {
   $('#devis-retour').textContent = retour ? '‹ Retour' : '‹ Accueil';
   afficher('devis');
   dessinerDevis();
-  if (D.chantier && !D.messages.length && !D.lignes.length) reprendreDevisServeur(D.chantier);
+  dessinerVersionsDevis();
+  if (D.chantier) reprendreDevisServeur(D.chantier);
   if (!D.messages.length) setTimeout(() => $('#devis-texte').focus(), 300);
 }
 
 function chargerDevisLocal(nom) {
   const s = nom ? lireJson(cleDevis(nom), null) : null;
-  Object.assign(D, { id: '', chantier: nom, messages: [], lignes: [], objet: '', tva: 0, mentions: [], questions: [], complet: false, contexte: '' }, s || {});
+  Object.assign(D, VIDE_DEVIS(), { chantier: nom, liste: [] }, s || {});
   if (!D.id) D.id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   D.chantier = nom;
 }
 
-// Un devis commencé sur l'autre appareil (iPhone ↔ PC) : on reprend le dernier enregistré dans le chantier.
+// Liste des devis du chantier (ceux de l'appli et ceux recopiés de ProGBat). Un devis de l'appli commencé sur
+// l'autre appareil (iPhone ↔ PC) est repris là où il en était ; un devis ProGBat n'est jamais modifié lui-même :
+// on en fait une nouvelle version.
 async function reprendreDevisServeur(nom) {
   if (!navigator.onLine || !reglages.ok()) return;
   try {
     const l = (await appelServeur({ action: 'lireDevis', chantier: nom }, 60000)).devis || [];
-    if (!l.length || D.chantier !== nom || D.messages.length || D.lignes.length) return;
-    const r = await appelServeur({ action: 'lireDevis', chantier: nom, id: l[0].id }, 60000);
+    if (D.chantier !== nom) return;
+    D.liste = l;
+    dessinerVersionsDevis();
+    const dernier = l.find((x) => x.source !== 'ProGBat');
+    if (!dernier || D.messages.length || D.lignes.length) return;
+    const r = await appelServeur({ action: 'lireDevis', chantier: nom, id: dernier.id }, 60000);
     if (D.chantier !== nom || D.messages.length || D.lignes.length || !r.devis) return;
-    Object.assign(D, r.devis, { chantier: nom });
+    Object.assign(D, VIDE_DEVIS(), r.devis, { chantier: nom, id: dernier.id });
     garderDevis();
     dessinerDevis();
     toast('Devis repris là où tu l\'avais laissé ✅', 'ok');
   } catch (e) { console.warn('lireDevis', e); }
+}
+
+const nomVersion = (x) => `${x.ref ? `${x.ref} · ` : ''}V${Number(x.version) || 1}`;
+
+function dessinerVersionsDevis() {
+  const zone = $('#devis-versions');
+  const autres = (D.liste || []).filter((x) => x.id !== D.id);
+  if (!D.chantier || !(D.liste || []).length) { zone.hidden = true; zone.replaceChildren(); return; }
+  zone.hidden = false;
+  const ligne = (x) => {
+    const ouvert = x.id === D.id;
+    const quand = x.date ? String(x.date) : new Date(x.maj).toLocaleDateString('fr-FR');
+    return el('li', { class: ouvert ? 'ouvert' : '' },
+      el('div', {}, el('b', {}, nomVersion(x)), ` ${x.source === 'ProGBat' ? '· ProGBat ' : ''}· ${eurosDevis(Number(x.totalHT) || 0)} HT`,
+        el('small', {}, `${x.titre && x.titre !== 'Devis' ? `${x.titre} · ` : ''}${quand}${ouvert ? ' · ouvert' : ''}`)),
+      el('div', { class: 'devis-versions-actions' },
+        ouvert ? null : x.source === 'ProGBat' ? null : el('button', { type: 'button', class: 'lien', onclick: () => ouvrirVersionDevis(x) }, 'Ouvrir'),
+        el('button', { type: 'button', class: 'puce', onclick: () => nouvelleVersionDevis(x) }, `✏️ Faire la V${prochaineVersion(x)}`)));
+  };
+  zone.replaceChildren(el('p', { class: 'etiquette' }, '📂 Devis de ce chantier : pour des changements, pars du devis déjà fait'),
+    el('ul', {}, ...D.liste.slice(0, 8).map(ligne)),
+    ...(autres.length === D.liste.length && D.lignes.length ? [el('small', { class: 'discret' }, `Ouvert : ${nomVersion(D)} (pas encore enregistré)`)] : []));
+}
+
+function prochaineVersion(x) {
+  const meme = (D.liste || []).filter((y) => (x.ref ? y.ref === x.ref : y.id === x.id || y.base === x.id));
+  return Math.max(Number(x.version) || 1, ...meme.map((y) => Number(y.version) || 1)) + 1;
+}
+
+async function lireUnDevis(x) {
+  const r = await appelServeur({ action: 'lireDevis', chantier: D.chantier, id: x.id }, 60000);
+  if (!r.devis) throw new Error('Devis introuvable');
+  return r.devis;
+}
+
+async function ouvrirVersionDevis(x) {
+  if (D.enCours) return;
+  try {
+    const nom = D.chantier;
+    const d = await lireUnDevis(x);
+    if (D.chantier !== nom) return;
+    Object.assign(D, VIDE_DEVIS(), d, { chantier: nom, id: x.id });
+    garderDevis();
+    dessinerDevis();
+    dessinerVersionsDevis();
+  } catch (e) { toast(`Ouverture impossible : ${e.message}`, 'erreur'); }
+}
+
+// Nouvelle version : toutes les lignes de la version choisie sont reprises (modifiables), la conversation repart de zéro.
+async function nouvelleVersionDevis(x) {
+  if (D.enCours) return;
+  if (!navigator.onLine || !reglages.ok()) { toast('Il faut du réseau pour reprendre ce devis.', 'erreur'); return; }
+  const version = prochaineVersion(x);
+  try {
+    const nom = D.chantier;
+    if (D.lignes.length && !(D.liste || []).some((y) => y.id === D.id)) await sauverDevisServeur(false).catch(() => {});
+    const d = await lireUnDevis(x);
+    if (D.chantier !== nom) return;
+    const ref = d.ref || x.ref || '';
+    const origine = `${ref ? `${ref} ` : ''}V${Number(d.version) || 1}`;
+    Object.assign(D, VIDE_DEVIS(), {
+      id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, chantier: nom, version, ref, base: x.id, source: 'appli',
+      objet: d.objet || '', tva: Number(d.tva) || 0, mentions: [...(d.mentions || [])],
+      lignes: (d.lignes || []).map((l) => ({ partie: l.partie || 'Travaux', designation: l.designation || '', quantite: Number(l.quantite) || 0,
+        unite: l.unite || '', prixHT: Number(l.prixHT) || 0, option: !!l.option, prixEstime: !!l.prixEstime,
+        source: l.reprise || l.source?.startsWith('Repris') ? l.source : `Repris de ${origine}`, reprise: true })),
+      messages: [{ qui: 'claude', texte: `J'ai repris le devis ${origine} : ${(d.lignes || []).length} lignes, ${eurosDevis(nombreDevis(x.totalHT))} HT. C'est la V${version}. Dis-moi ce que le client veut ajouter, changer ou retirer : je garde le reste tel quel. Tu peux aussi modifier les lignes à la main.`, quand: Date.now() }],
+    });
+    garderDevis();
+    await sauverDevisServeur(false).catch(() => {});
+    D.liste = [{ id: D.id, titre: D.objet || 'Devis', totalHT: Math.round(totauxDevis().ht * 100) / 100, version, ref, source: 'appli', base: x.id, maj: Date.now() }, ...(D.liste || [])];
+    dessinerDevis();
+    dessinerVersionsDevis();
+    toast(`V${version} prête ✅ Dis-moi ce que le client veut en plus.`, 'ok');
+    setTimeout(() => $('#devis-texte').focus(), 300);
+  } catch (e) { toast(`Reprise impossible : ${e.message}`, 'erreur'); }
 }
 
 function totauxDevis() {
@@ -4799,7 +4886,8 @@ function dessinerDevis() {
   $('#devis-objet').value = D.objet || '';
   $('#devis-tva').value = String(Number(D.tva) || 0);
   const pasDeChantier = !D.chantier;
-  $('#devis-etat').textContent = pasDeChantier ? '' : D.complet ? '✅ complet' : D.lignes.length ? '✏️ en cours' : '';
+  const v = Number(D.version) > 1 || D.ref ? `${nomVersion(D)} · ` : '';
+  $('#devis-etat').textContent = pasDeChantier ? '' : v + (D.complet ? '✅ complet' : D.lignes.length ? '✏️ en cours' : '');
   dessinerFilDevis();
   dessinerQuestionsDevis();
   dessinerLignesDevis();
@@ -4948,11 +5036,17 @@ async function envoyerDevis(texteForce) {
   try {
     const r = await appelServeur({ action: 'assistantDevis', chantier, contexte: D.contexte,
       messages: D.messages.map(({ qui, texte: t }) => ({ qui, texte: t })), objet: D.objet, tva: Number(D.tva) || 0,
-      mentions: D.mentions, lignes: D.lignes }, 170000);
+      mentions: D.mentions, lignes: D.lignes, version: Number(D.version) || 1, ref: D.ref }, 170000);
     if (D.chantier !== chantier) return;
     const c = r.devis || {};
     D.messages.push({ qui: 'claude', texte: c.reponse || 'C\'est noté.', corrections: c.corrections || [], quand: Date.now() });
-    D.lignes = (c.lignes || []).map((l) => ({ ...l, quantite: Number(l.quantite) || 0, prixHT: Number(l.prixHT) || 0 }));
+    // Claude renvoie toutes les lignes : on garde les repères « reprise » et « modifié à la main » des lignes inchangées.
+    const avant = new Map(D.lignes.map((l) => [l.designation, l]));
+    D.lignes = (c.lignes || []).map((l) => {
+      const a = avant.get(l.designation);
+      return { ...l, quantite: Number(l.quantite) || 0, prixHT: Number(l.prixHT) || 0,
+        ...(a?.reprise ? { reprise: true } : {}), ...(a?.modifie ? { modifie: true } : {}) };
+    });
     D.questions = c.questions || [];
     D.mentions = c.mentions || [];
     if (c.objet) D.objet = c.objet;
@@ -4982,7 +5076,9 @@ async function sauverDevisServeur(valider) {
 
 function texteDevis() {
   const t = totauxDevis();
-  const l = [`DEVIS PRÉPARÉ DANS L'APPLI – ${D.chantier}`, `Objet : ${D.objet || '—'}`, `TVA : ${D.tva ? `${D.tva} %` : 'à choisir'}`,
+  const l = [`DEVIS PRÉPARÉ DANS L'APPLI – ${D.chantier}`,
+    ...(Number(D.version) > 1 ? [`VERSION V${D.version}${D.ref ? ` du devis ${D.ref} (dans ProGBat : dupliquer ${D.ref} puis appliquer les changements)` : ''}`] : []),
+    `Objet : ${D.objet || '—'}`, `TVA : ${D.tva ? `${D.tva} %` : 'à choisir'}`,
     `Préparé le ${new Date().toLocaleString('fr-FR')}`, ''];
   let partie = null;
   for (const x of D.lignes) {
@@ -5041,7 +5137,8 @@ function brancherDevis() {
     const nom = e.target.value;
     chargerDevisLocal(nom);
     dessinerDevis();
-    if (nom && !D.messages.length && !D.lignes.length) reprendreDevisServeur(nom);
+    dessinerVersionsDevis();
+    if (nom) reprendreDevisServeur(nom);
   };
   $('#devis-envoyer').onclick = () => envoyerDevis();
   $('#devis-micro').onclick = parlerDevis;

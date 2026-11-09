@@ -1074,6 +1074,14 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .bulle .corrections { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--bord); font-size: 14px; }
 .bulle .corrections li { margin: 2px 0; }
 .bulle .corrections s { color: var(--texte-doux); }
+.devis-versions { margin-bottom: 12px; padding: 12px 14px; }
+.devis-versions .etiquette { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--texte-doux); }
+.devis-versions ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.devis-versions li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 12px; background: var(--fond); }
+.devis-versions li.ouvert { outline: 2px solid var(--bleu, #1f3a68); }
+.devis-versions li small { display: block; color: var(--texte-doux); font-size: 12px; margin-top: 2px; }
+.devis-versions-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .devis-questions:not(:empty) { margin-top: 12px; padding: 12px; border-radius: 14px; background: var(--orange-clair); }
 .devis-questions .etiquette { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--texte-doux); }
 .devis-question { margin: 0 0 12px; }
