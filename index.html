@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.18.0">
+  <meta name="version-appli" content="1.19.0">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -449,17 +449,27 @@
           <button data-gabarit="appentis">Appentis</button>
           <button data-gabarit="mur">Mur</button>
           <button data-gabarit="pan">Pan de toit</button>
+          <button data-gabarit="libre">✏️ Forme à créer</button>
         </div>
         <canvas id="gabarit-apercu" class="gabarit-apercu" width="1200" height="780"></canvas>
         <div id="gabarit-aide" class="releve-aide"></div>
         <section class="carte">
           <h2>Tes mesures <small class="discret">en mètres · laisse vide ce que tu n'as pas</small></h2>
           <div id="gabarit-champs" class="champs-saisie"></div>
+          <div id="gabarit-points-bloc" class="cache">
+            <p class="discret petit-texte">Le haut du mur, de gauche à droite : à chaque changement (faîtage, cassure, décroché), tape la distance depuis le coin gauche et la hauteur à cet endroit. Deux points à la même distance font une marche.</p>
+            <div id="gabarit-points"></div>
+            <button id="gabarit-ajouter-point" class="btn secondaire">＋ Ajouter un point du haut</button>
+          </div>
         </section>
         <section class="carte">
-          <h2>Ouvertures <small class="discret">portes, fenêtres, passages</small></h2>
-          <div id="gabarit-ouvertures"></div>
-          <button id="gabarit-ajouter-ouverture" class="btn secondaire">＋ Ajouter une ouverture</button>
+          <label class="ligne-zone" for="gabarit-avec-ouvertures">
+            <span><strong>Ce mur a des ouvertures</strong><small>Portes, fenêtres, portail, passage</small></span>
+            <span class="interrupteur"><input type="checkbox" id="gabarit-avec-ouvertures"><span></span></span></label>
+          <div id="gabarit-ouvertures-bloc" class="cache">
+            <div id="gabarit-ouvertures"></div>
+            <button id="gabarit-ajouter-ouverture" class="btn secondaire">＋ Ajouter une ouverture</button>
+          </div>
         </section>
         <div class="photo-jointe">
           <div id="gabarit-photo-vignette" class="photo-vignette"></div>
@@ -476,11 +486,6 @@
         <div class="carte-entete"><h2>Mesures à prendre</h2><button id="releve-reanalyser" class="lien">Refaire l'analyse</button></div>
         <p id="releve-cotes-analyse" class="discret petit-texte"></p>
         <div id="releve-cotes-liste"></div>
-        <textarea id="releve-dictee" rows="2" placeholder="Ou dicte : « A douze mètres trente, B deux quinze… »"></textarea>
-        <div class="deux-boutons">
-          <button id="releve-micro" class="btn secondaire">🎤 Dicter</button>
-          <button id="releve-lire" class="btn secondaire">Lire la dictée</button>
-        </div>
       </section>
       <div id="releve-selection" class="releve-selection cache"></div>
       <div id="releve-outils" class="releve-outils">
@@ -492,6 +497,17 @@
       </div>
       <button id="releve-fermer-surface" class="btn principal cache">✓ Fermer la surface</button>
       </div>
+      <!-- Dictée intelligente (1.19) : Claude comprend les mesures ET ce que veut le client, et propose les réglages. -->
+      <section class="carte dictee-intelligente">
+        <h2>🎤 Dis-moi tout</h2>
+        <p class="discret petit-texte">Tes mesures (« A douze cinquante, B trois trente-cinq… ») et ce que veut le client (matériau, couleur, dépose, ouverture à réduire, partie à faire…). Claude te propose les réglages : tu coches ce qui est bon.</p>
+        <textarea id="releve-dictee" rows="3" placeholder="ex. « Le client veut du Murexter noir, dépose du vieux bardage bois, reprendre l'empoutrement, descendre le bardage au-dessus de l'ouverture à 3 mètres, une plaque éclairante »"></textarea>
+        <div class="deux-boutons">
+          <button id="releve-micro" class="btn secondaire">🎤 Dicter</button>
+          <button id="releve-lire" class="btn principal">✨ Comprendre</button>
+        </div>
+        <div id="releve-propositions" class="propositions-ia cache"></div>
+      </section>
       <section class="carte">
         <h2>Métré</h2>
         <ul id="releve-liste" class="resultats"></ul>
@@ -530,9 +546,12 @@
         <select id="releve-chantier"></select>
         <div class="champ"><label for="releve-facade">Façade <span class="discret">(trouvée par la boussole, modifiable)</span></label>
           <input id="releve-facade" type="text" autocomplete="off" placeholder="ex. Façade nord, Pignon sud"></div>
+        <button id="releve-autre-mur" class="photos-gros petit"><span>➕</span>Ajouter un autre mur ou pignon</button>
+        <p class="discret petit-texte">Ton relevé s'enregistre tout seul sur l'appareil. « 💾 Enregistrer » le garde aussi dans le chantier : tu le reprends quand tu veux (fiche du chantier › Relevés à reprendre), sur l'iPhone ou le PC.</p>
       </div>
-      <div class="pied-fixe">
-        <button id="releve-envoyer" class="btn principal" disabled>📄 Créer la feuille de relevé</button>
+      <div class="pied-fixe deux-boutons">
+        <button id="releve-enregistrer" class="btn secondaire">💾 Enregistrer</button>
+        <button id="releve-envoyer" class="btn principal" disabled>📄 Créer la feuille</button>
       </div>
     </div>
   </section>

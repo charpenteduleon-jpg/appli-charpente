@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.18.0';
+const VERSION = '1.19.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -2082,7 +2082,8 @@ function calepinageBac(p, usage) {
 const R = { mode: 'saisie', photo: '', img: null, elements: [], outil: 'cote', enCours: null, glisse: null, loupe: null, historique: [],
   ouvrage: 'bardage', params: {}, image: 0, feuilles: [], minuteur: null,
   echelleFixe: null, lineaires: [], toiture: 0, incomplet: [], alertes: [],
-  gabarit: { type: 'pignon', saisis: {}, ouvertures: [] }, zone: { actif: false, depuis: 'gauche', de: 0, a: 0, bas: 0, haut: 0 } };
+  gabarit: { type: 'pignon', saisis: {}, ouvertures: [] }, zone: { actif: false, depuis: 'gauche', de: 0, a: 0, bas: 0, haut: 0 },
+  travaux: [], compris: '', suiteAutreMur: null };
 
 const fmtM = (n) => (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
 const fmtNb = (n, d = 0) => n.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -2361,8 +2362,11 @@ async function photoReleve(fichier, mode = 'photo') {
       sauverBrouillonReleve();
       return;
     }
-    await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv,
-      facade: $('#releve-facade').value });
+    // Mur suivant (« Ajouter un autre mur ») : même chantier et même ouvrage, nouveau relevé, façade à nommer.
+    const suite = R.suiteAutreMur;
+    R.suiteAutreMur = null;
+    await demarrerReleve(suite ? { ...suite, mode: 'photo', photo: data, elements: [], facade: '' }
+      : { mode: 'photo', photo: data, elements: [], chantier: $('#releve-chantier').value, depuisRdv: R.depuisRdv, facade: $('#releve-facade').value });
     nommerFacadeParBoussole();
     envoyerPhotoReleve();
     analyserPhotoReleve();
@@ -2548,6 +2552,145 @@ async function lireDictee() {
   toast(`${Object.keys(trouve).length} mesure(s) lue(s) ✅${doute ? ` · ${doute}` : ''}`, 'ok');
 }
 
+// ---------- Dictée intelligente (1.19) ----------
+// Jean-Phi dicte tout d'un coup : ses mesures ET ce que veut le client. Claude comprend et propose les réglages
+// (mesures, ouvrage, couleur, plaques éclairantes, ouverture réduite, partie à faire, travaux en plus, questions à poser).
+// Rien n'est appliqué sans lui : chaque proposition est une case cochée qu'il peut décocher.
+const FORMES_ANALYSE = { pignon: 'pignon', appentis: 'appentis', mur: 'mur', 'pan de toit': 'pan' };
+const formeReleve = () => (R.mode === 'saisie' ? R.gabarit.type : FORMES_ANALYSE[R.analyse?.forme] || 'mur');
+
+// Les « cotes » que la dictée peut remplir : les lettres A, B… sur photo, les cases de la forme en saisie.
+function cotesDictables() {
+  if (R.mode === 'saisie') {
+    return GABARITS[R.gabarit.type].map(([cle, nom]) => ({ lettre: cle, nom: estPente(cle) ? `${nom} (en degrés)` : nom, valeur: R.gabarit.saisis[cle] || '' }));
+  }
+  return R.elements.filter((e) => e.type === 'cote' && e.lettre).map((e) => ({ lettre: e.lettre, nom: e.nom, valeur: e.valeur > 0 ? e.valeur : '' }));
+}
+
+function ouverturesDictables() {
+  if (R.mode === 'saisie') return R.gabarit.ouvertures.map((ov, i) => ({ nom: ov.nom || `Ouverture ${i + 1}`, ref: i }));
+  return R.elements.filter((e) => e.type === 'ouverture').map((e) => ({ nom: nomElement(e), ref: R.elements.indexOf(e) }));
+}
+
+async function comprendreDictee() {
+  const texte = $('#releve-dictee').value.trim();
+  if (!texte) { toast('Dicte ou écris d\'abord ce que tu veux.', 'erreur'); $('#releve-dictee').focus(); return; }
+  if (!navigator.onLine || !reglages.ok()) {
+    if (R.mode === 'photo') { lireDictee(); return; }
+    toast('Pas de réseau : Claude ne peut pas lire la dictée. Tape tes mesures dans les cases.', 'erreur'); return;
+  }
+  const bouton = $('#releve-lire');
+  bouton.disabled = true; bouton.textContent = '✨ Claude réfléchit…';
+  const cotes = cotesDictables();
+  const ouvertures = ouverturesDictables();
+  try {
+    const r = await appelServeur({ action: 'comprendreDictee', texte, cotes, ouvertures: ouvertures.map((o) => o.nom),
+      forme: NOMS_GABARITS[formeReleve()] || 'mur', description: R.analyse?.description || '', ouvrageActuel: R.ouvrage,
+      ouvrages: NOMS_OUVRAGES, couleurActuelle: R.params[R.ouvrage]?.couleur || '', metre: texteMetre() }, 90000);
+    afficherPropositions(r.comprehension || r, cotes, ouvertures);
+  } catch (e) {
+    // Serveur pas encore à jour (ou Claude indisponible) : on lit au moins les mesures.
+    console.warn('comprendreDictee', e);
+    if (R.mode === 'photo') { toast('Lecture simple des mesures (Claude indisponible pour le reste).'); await lireDictee(); }
+    else toast(`Claude indisponible : ${e.message}`, 'erreur');
+  } finally { bouton.disabled = false; bouton.textContent = '✨ Comprendre'; }
+}
+
+function afficherPropositions(c, cotes, ouvertures) {
+  const zone = $('#releve-propositions');
+  const props = []; // { texte, appliquer }
+  const fmt = (v) => fmtNb(v, 2);
+  for (const m of c.mesures || []) {
+    const cote = cotes.find((x) => x.lettre.toLowerCase() === String(m.lettre).toLowerCase());
+    const v = Number(m.valeur);
+    if (!cote || !(v > 0)) continue;
+    const pente = R.mode === 'saisie' && estPente(cote.lettre);
+    const actuelle = lireMesure(String(cote.valeur)) || Number(cote.valeur) || 0;
+    if (!pente && Math.abs(actuelle - v) < 0.005) continue;
+    props.push({ texte: `${R.mode === 'photo' ? `${cote.lettre} · ` : ''}${cote.nom.replace(' (en degrés)', '')} : ${pente ? `${fmtNb(v, 1)}°` : `${fmt(v)} m`}${actuelle ? ` (au lieu de ${fmt(actuelle)})` : ''}`,
+      appliquer: () => {
+        if (R.mode === 'saisie') R.gabarit.saisis[cote.lettre] = pente ? `${String(v).replace('.', ',')}°` : String(v).replace('.', ',');
+        else { const e = R.elements.find((x) => x.type === 'cote' && x.lettre === cote.lettre); if (e) e.valeur = v; }
+      } });
+  }
+  if (c.ouvrage && OUVRAGES[c.ouvrage] && c.ouvrage !== R.ouvrage) {
+    props.push({ texte: `Ouvrage : ${NOMS_OUVRAGES[c.ouvrage]}`, appliquer: () => { R.ouvrage = c.ouvrage; $('#releve-ouvrage').value = c.ouvrage; } });
+  }
+  if (c.couleur) {
+    props.push({ texte: `Couleur : ${c.couleur}`, appliquer: () => {
+      const o = R.ouvrage; if ((OUVRAGES[o] || []).some(([k]) => k === 'couleur')) R.params[o] = { ...(R.params[o] || {}), couleur: c.couleur };
+    } });
+  }
+  if (Number.isInteger(c.eclairantes) && c.eclairantes >= 0) {
+    props.push({ texte: `Plaques éclairantes : ${c.eclairantes}`, appliquer: () => {
+      const o = R.ouvrage; if ((OUVRAGES[o] || []).some(([k]) => k === 'eclairantes')) R.params[o] = { ...(R.params[o] || {}), eclairantes: c.eclairantes };
+    } });
+  }
+  for (const ov of c.ouvertures || []) {
+    const cible = ouvertures.find((o) => o.nom.toLowerCase() === String(ov.nom).toLowerCase()) || (ouvertures.length === 1 ? ouvertures[0] : null);
+    const h = Number(ov.hauteurApresTravaux);
+    if (!cible || !(h > 0)) continue;
+    props.push({ texte: `${cible.nom} : bardage jusqu'à ${fmt(h)} m du sol après travaux${ov.raison ? ` (${ov.raison})` : ''}`, appliquer: () => {
+      if (R.mode === 'saisie') R.gabarit.ouvertures[cible.ref].p = String(h).replace('.', ',');
+      else if (R.elements[cible.ref]) R.elements[cible.ref].projetH = h;
+    } });
+  }
+  const z = c.zone;
+  if (z?.active && (z.a > 0 || z.haut > 0 || z.de > 0 || z.bas > 0)) {
+    const morceaux = [z.de >= 0 || z.a > 0 ? `de ${fmt(Math.max(z.de, 0))} à ${z.a > 0 ? `${fmt(z.a)} m` : 'la fin'} depuis le coin ${z.depuis === 'droite' ? 'droit' : 'gauche'}` : '',
+      z.bas > 0 || z.haut > 0 ? `hauteur ${fmt(Math.max(z.bas, 0))} → ${z.haut > 0 ? `${fmt(z.haut)} m` : 'en haut'}` : ''].filter(Boolean);
+    props.push({ texte: `Seulement une partie : ${morceaux.join(', ')}`, appliquer: () => {
+      R.zone = { ...zoneVide(), actif: true, depuis: z.depuis === 'droite' ? 'droite' : 'gauche',
+        de: z.de > 0 ? z.de : 0, a: z.a > 0 ? z.a : 0, bas: z.bas > 0 ? z.bas : 0, haut: z.haut > 0 ? z.haut : 0 };
+      $('#zone-actif').checked = true; $('#zone-champs').classList.remove('cache');
+    } });
+  }
+  for (const t of c.travaux || []) {
+    if (!t.libelle) continue;
+    const q = Number(t.quantite) > 0 ? `${fmtNb(Number(t.quantite), 2)} ${t.unite || ''}`.trim() : (t.unite ? `? ${t.unite}` : '');
+    props.push({ texte: `Travaux : ${t.libelle}${q ? ` — ${q}` : ''}`, appliquer: () => {
+      R.travaux = [...(R.travaux || []).filter((x) => x.libelle !== t.libelle), { libelle: t.libelle, quantite: Number(t.quantite) || 0, unite: t.unite || '' }];
+    } });
+  }
+
+  const cases = props.map((p) => {
+    const cb = el('input', { type: 'checkbox' }); cb.checked = true;
+    return { p, cb, li: el('label', { class: 'proposition' }, cb, el('span', {}, p.texte)) };
+  });
+  const blocs = [];
+  if (c.compris) blocs.push(el('p', { class: 'compris' }, el('b', {}, '🧠 J\'ai compris : '), c.compris));
+  if (cases.length) {
+    blocs.push(el('p', { class: 'etiquette' }, 'Je te propose (décoche ce qui ne va pas) :'), ...cases.map((x) => x.li));
+    const appliquer = el('button', { class: 'btn principal', type: 'button' }, `✓ Appliquer (${cases.length})`);
+    appliquer.onclick = () => {
+      sauverHistorique();
+      let n = 0;
+      for (const x of cases) if (x.cb.checked) { x.p.appliquer(); n++; }
+      R.compris = c.compris || R.compris || '';
+      apresDictee();
+      zone.replaceChildren(el('p', { class: 'compris ok' }, `✅ ${n} réglage${n > 1 ? 's' : ''} appliqué${n > 1 ? 's' : ''}. Tout est repris sur la feuille et dans le rendez-vous.`),
+        ...(c.questions || []).length ? [el('p', { class: 'etiquette' }, '❓ À demander au client :'), ...c.questions.map((q) => el('p', { class: 'question' }, `• ${q}`))] : []);
+      toast(`${n} réglage${n > 1 ? 's' : ''} appliqué${n > 1 ? 's' : ''} ✅`, 'ok');
+    };
+    blocs.push(appliquer);
+  } else blocs.push(el('p', { class: 'discret' }, 'Rien à changer : tout ce que tu as dit est déjà dans le relevé. Ton texte est gardé comme note.'));
+  if ((c.questions || []).length) blocs.push(el('p', { class: 'etiquette' }, '❓ À demander au client :'), ...c.questions.map((q) => el('p', { class: 'question' }, `• ${q}`)));
+  if (!cases.length) { R.compris = c.compris || R.compris || ''; sauverBrouillonReleve(); }
+  zone.replaceChildren(...blocs);
+  zone.classList.remove('cache');
+  zone.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function apresDictee() {
+  $('#releve-ouvrage').value = R.ouvrage;
+  dessinerParamsReleve();
+  remplirCarteZone();
+  if (R.mode === 'saisie') { dessinerChampsSaisie(); dessinerOuvertures(); }
+  else { dessinerPanneauCotes(); redessinerReleve(); }
+  majReleve();
+  sauverBrouillonReleve();
+}
+
 let reconnaissance = null;
 function dicterMesures() {
   const zone = $('#releve-dictee'), bouton = $('#releve-micro');
@@ -2562,7 +2705,7 @@ function dicterMesures() {
     const debut = zone.value ? `${zone.value} ` : '';
     r.onresult = (ev) => { zone.value = debut + [...ev.results].map((x) => x[0].transcript).join(' '); };
     r.onerror = () => { zone.focus(); };
-    r.onend = () => { reconnaissance = null; bouton.textContent = '🎤 Dicter'; if (zone.value.trim()) lireDictee(); };
+    r.onend = () => { reconnaissance = null; bouton.textContent = '🎤 Dicter'; if (zone.value.trim()) comprendreDictee(); };
     r.start();
     reconnaissance = r;
     bouton.textContent = '⏹ J\'ai fini';
@@ -2611,6 +2754,10 @@ async function demarrerReleve(b) {
   R.zone = { ...zoneVide(), ...(b.zone || {}) };
   remplirCarteZone();
   $('#releve-facade').value = b.facade || '';
+  $('#releve-dictee').value = b.dictee || '';
+  R.compris = b.compris || '';
+  R.travaux = Array.isArray(b.travaux) ? b.travaux : [];
+  $('#releve-propositions').classList.add('cache');
   if (R.mode === 'photo') {
     const c = $('#releve-canvas');
     c.width = R.img.width;
@@ -2655,7 +2802,8 @@ function brouillonEffacer() {
 // quand on range la feuille, pour le retravailler sur le PC.
 const etatReleve = () => ({ id: R.id, mode: R.mode, photo: R.photo, elements: R.mode === 'photo' ? R.elements : [], gabarit: R.gabarit,
   analyse: R.analyse, chantier: $('#releve-chantier').value, ouvrage: R.ouvrage, params: R.params, date: Date.now(),
-  photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value, zone: R.zone });
+  photoEnvoyee: !!R.photoEnvoyee, depuisRdv: !!R.depuisRdv, facade: $('#releve-facade').value, zone: R.zone,
+  dictee: $('#releve-dictee').value, compris: R.compris || '', travaux: R.travaux || [] });
 
 async function sauverBrouillonMaintenant() {
   clearTimeout(R.minuteur);
@@ -2726,7 +2874,11 @@ function nouveauReleve() {
   R.gabarit = { type: 'pignon', saisis: {}, ouvertures: [] };
   R.zone = zoneVide();
   R.analyse = null;
+  R.travaux = [];
+  R.compris = '';
   $('#releve-facade').value = '';
+  $('#releve-dictee').value = '';
+  $('#releve-propositions').classList.add('cache');
   brouillonEffacer();
   ouvrirReleve($('#releve-chantier').value);
 }
@@ -2740,8 +2892,17 @@ const GABARITS = {
     ['long', 'Longueur du bâtiment'], ['debord', 'Débord de toit (le long de la pente)']],
   mur: [['L', 'Longueur'], ['H', 'Hauteur']],
   pan: [['r', 'Rampant (égout → faîtage)'], ['long', 'Longueur du pan'], ['p', 'Pente (° ou %)'], ['portee', 'Portée horizontale']],
+  // Forme à créer : largeur au sol, hauteurs aux deux coins, puis les points du haut (g.points).
+  libre: [['L', 'Largeur au sol'], ['hG', 'Hauteur au coin gauche'], ['hD', 'Hauteur au coin droit'], ['long', 'Longueur du bâtiment (facultatif)']],
 };
-const NOMS_GABARITS = { pignon: 'Pignon', appentis: 'Appentis', mur: 'Mur', pan: 'Pan de toit' };
+const NOMS_GABARITS = { pignon: 'Pignon', appentis: 'Appentis', mur: 'Mur', pan: 'Pan de toit', libre: 'Forme libre' };
+
+// Points du haut d'une forme libre, en mètres, triés de gauche à droite (ordre de saisie gardé à x égal).
+function pointsLibres(g) {
+  return (g.points || []).map((p, i) => ({ i, x: lireMesure(p.x), h: lireMesure(p.h) }))
+    .filter((p) => p.x != null && p.x >= 0 && p.h != null && p.h > 0)
+    .sort((a, b) => a.x - b.x || a.i - b.i);
+}
 const estPente = (cle) => /^p[GD]?$/.test(cle);
 const RAD_DEG = 180 / Math.PI;
 
@@ -2835,6 +2996,13 @@ function resoudreGabarit() {
   } else if (g.type === 'pan') {
     const S = resoudrePan({ x: v.portee, r: v.r, p: v.p });
     for (const [cle, val] of [['portee', S.x], ['r', S.r], ['p', S.p]]) poser(cle, val);
+  } else if (g.type === 'libre') {
+    if (v.hD == null && v.hG != null) { supposes.hD = 'comme le coin gauche'; poser('hD', v.hG); }
+    if (v.hG == null && v.hD != null) { supposes.hG = 'comme le coin droit'; poser('hG', v.hD); }
+    const pts = pointsLibres(g);
+    if (v.L != null) {
+      for (const p of pts) if (p.x > v.L + 0.005) alertes.push(`Point à ${fmtM(p.x)} m : plus loin que la largeur (${fmtM(v.L)} m)`);
+    }
   }
   return { v, origine, alertes, supposes };
 }
@@ -2900,6 +3068,29 @@ function construireSaisie(sol) {
     haut = d.H;
     cote('Longueur', [0, -0.7], [d.L, -0.7], 'L');
     cote('Hauteur', [-0.7, 0], [-0.7, d.H], 'H');
+  } else if (g.type === 'libre') {
+    req('L', 'la largeur au sol'); req('hG', 'la hauteur au coin gauche');
+    d.L ??= 10; d.hG ??= 3; d.hD ??= d.hG;
+    const hauts = pointsLibres(g).filter((p) => p.x <= d.L + 0.005);
+    pts.push([0, 0], [0, d.hG], ...hauts.map((p) => [p.x, p.h]), [d.L, d.hD], [d.L, 0]);
+    haut = Math.max(d.hG, d.hD, ...hauts.map((p) => p.h));
+    const off = 0.7;
+    cote('Largeur', [0, -off], [d.L, -off], 'L');
+    cote('Coin G', [-off, 0], [-off, d.hG], 'hG');
+    cote('Coin D', [d.L + off, 0], [d.L + off, d.hD], 'hD');
+    hauts.forEach((p, k) => {
+      const cle = `pt${k}`;
+      v[cle] = p.h; o[cle] = 'saisi';
+      if (p.x > 0.05 && p.x < d.L - 0.05) cote(`Point ${k + 1} (à ${fmtM(p.x)})`, [p.x, 0], [p.x, p.h], cle);
+    });
+    if (!manque.length) {
+      // Longueur du haut (rives, acrotère, couvertine) : somme des segments du contour supérieur.
+      let dessus = 0;
+      const sommet = pts.slice(1, -1);
+      for (let k = 1; k < sommet.length; k++) dessus += Math.hypot(sommet[k][0] - sommet[k - 1][0], sommet[k][1] - sommet[k - 1][1]);
+      lin.push(['Longueur du haut (rives)', `${fmtM(dessus)} ml`]);
+      if (v.long) lin.push(['Longueur du bâtiment', `${fmtM(v.long)} ml`]);
+    }
   } else {
     req('r', 'le rampant (ou la portée et la pente)'); req('long', 'la longueur du pan');
     d.r ??= 6; d.long ??= 10;
@@ -2969,10 +3160,34 @@ function dessinerChampsSaisie() {
     return el('div', { class: 'champ champ-saisie', 'data-cle': cle },
       el('label', { for: `saisie-${cle}` }, libelle), input, el('small', { class: 'calcul' }, ''));
   }));
+  dessinerPointsLibres();
+}
+
+function dessinerPointsLibres() {
+  const g = R.gabarit;
+  const libre = g.type === 'libre';
+  $('#gabarit-points-bloc').classList.toggle('cache', !libre);
+  if (!libre) return;
+  g.points ||= [];
+  $('#gabarit-points').replaceChildren(...g.points.map((p, i) => {
+    const champ = (cle, libelle, ph) => {
+      const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: p[cle] || '' });
+      input.oninput = () => { p[cle] = input.value; majReleve(); };
+      return el('div', { class: 'champ' }, el('label', {}, libelle), input);
+    };
+    return el('div', { class: 'ouverture-saisie point-libre' },
+      el('div', { class: 'ouverture-entete' }, el('strong', {}, `Point ${i + 1}`),
+        el('button', { class: 'lien', 'aria-label': 'Retirer', onclick: () => { g.points.splice(i, 1); dessinerPointsLibres(); majReleve(); } }, '🗑️')),
+      el('div', { class: 'deux-champs' }, champ('x', 'Depuis le coin gauche', 'ex. 4,20'), champ('h', 'Hauteur', 'ex. 5,80')));
+  }));
 }
 
 function dessinerOuvertures() {
   const g = R.gabarit;
+  // « Ce mur a des ouvertures » : coché seulement s'il y en a (demande de Jean-Phi : un mur peut ne pas en avoir).
+  const avec = g.ouvertures.length > 0 || !!g.avecOuvertures;
+  $('#gabarit-avec-ouvertures').checked = avec;
+  $('#gabarit-ouvertures-bloc').classList.toggle('cache', !avec);
   $('#gabarit-ouvertures').replaceChildren(...g.ouvertures.map((ov, i) => {
     const champ = (cle, libelle, ph) => {
       const input = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', placeholder: ph, value: ov[cle] || '' });
@@ -3443,9 +3658,11 @@ function remplirCarteZone() {
 function dessinerQuantites(m, vide) {
   majCarteZone();
   const q = quantitesReleve(m);
+  const tr = travauxReleve().map(([l, v], i) => el('li', { class: 'travail' }, el('span', {}, `🔧 ${l}`),
+    el('b', {}, v || ''), el('button', { class: 'lien', 'aria-label': `Retirer ${l}`, onclick: () => { R.travaux.splice(i, 1); majReleve(); } }, '×')));
   $('#releve-quantites').replaceChildren(...(q.length
     ? q.map(([l, v]) => el('li', {}, el('span', {}, l), el('b', {}, v)))
-    : [el('li', { class: 'vide' }, R.ouvrage === 'aucun' ? 'Les surfaces sont dans la liste au-dessus.' : vide)]));
+    : [el('li', { class: 'vide' }, R.ouvrage === 'aucun' ? 'Les surfaces sont dans la liste au-dessus.' : vide)]), ...tr);
 }
 
 function dessinerParamsReleve() {
@@ -3481,7 +3698,15 @@ function texteMetre() {
   if (R.mode === 'saisie') for (const a of R.alertes) l.push(`⚠ ${a}`);
   const q = quantitesReleve(m);
   if (q.length) { l.push('', `${NOMS_OUVRAGES[R.ouvrage]} :`); for (const [a, b] of q) l.push(`- ${a} : ${b}`); }
+  const tr = travauxReleve();
+  if (tr.length) { l.push('', 'Travaux demandés :'); for (const [a, b] of tr) l.push(`- ${a}${b ? ` : ${b}` : ''}`); }
+  if (R.compris) l.push('', `Ce que veut le client : ${R.compris}`);
   return l.join('\n');
+}
+
+// Travaux en plus retenus depuis la dictée (dépose, empoutrement, gouttières…) : [libellé, quantité].
+function travauxReleve() {
+  return (R.travaux || []).map((t) => [t.libelle, t.quantite > 0 ? `${fmtNb(t.quantite, 2)} ${t.unite || ''}`.trim() : (t.unite ? `? ${t.unite}` : '')]);
 }
 
 // ---------- Feuille de relevé (2 pages : esquisse cotée + photo cotée) ----------
@@ -3615,6 +3840,8 @@ function pageEsquisse(s, m) {
   }
   const q = quantitesReleve(m);
   if (q.length) { y += 16; titre(NOMS_OUVRAGES[R.ouvrage]); for (const [a, b] of q) ligne(a, b); }
+  const tr = travauxReleve();
+  if (tr.length) { y += 16; titre('Travaux demandés'); for (const [a, b] of tr) ligne(a, b); }
 
   piedFeuille(ctx, W, H, R.mode === 'saisie'
     ? `✓ = mesuré sur place · autres cotes calculées par l'appli${R.alertes.length ? ' · ⚠ certaines mesures ne collent pas entre elles, à revérifier' : ''} · à confirmer avant commande`
@@ -3785,12 +4012,7 @@ async function rangerFeuille() {
   const envois = R.feuilles.map((d, i) => ({ ...commun, page: i + 1, fichier: { mime: 'image/jpeg', data: d.split(',')[1] } }));
   envoyerPhotoReleve(); // la photo d'origine aussi, si elle n'est pas déjà partie
   // Les données du relevé partent aussi : on pourra le rouvrir et le corriger (sur le PC par exemple).
-  const s = echelleReleve(), m = metreReleve(s);
-  const facade = $('#releve-facade').value.trim();
-  envois.push({ action: 'sauverReleve', id: R.id, chantier, date: Date.now(),
-    titre: facade || (R.mode === 'saisie' ? NOMS_GABARITS[R.gabarit.type] || 'Relevé' : 'Relevé sur photo'),
-    resume: [NOMS_OUVRAGES[R.ouvrage], m.brut ? `${fmtNb(m.net, 2)} m² nets` : '', m.zone ? 'zone de travaux' : ''].filter(Boolean).join(' · '),
-    releve: { ...etatReleve(), chantier, depuisRdv: false } });
+  envois.push(envoiSauverReleve(chantier));
   const { tousPartis } = await mettreEnFile(envois);
   brouillonEffacer(); // la feuille est rangée (ou dans la file d'envoi) : plus besoin de rouvrir ce relevé au démarrage
   toast(tousPartis ? `Relevé rangé dans ${chantier} ✅` : 'Pas de réseau : le relevé partira tout seul.', tousPartis ? 'ok' : '');
@@ -3801,6 +4023,89 @@ async function rangerFeuille() {
     R.actif = false;
     ouvrirRdv();
   }
+}
+
+// Données complètes du relevé, rangées dans « 01 Plans/Relevés (données) » : retravaillable depuis la fiche du chantier.
+function envoiSauverReleve(chantier) {
+  const s = echelleReleve(), m = s ? metreReleve(s) : {};
+  const facade = $('#releve-facade').value.trim();
+  return { action: 'sauverReleve', id: R.id, chantier, date: Date.now(),
+    titre: facade || (R.mode === 'saisie' ? NOMS_GABARITS[R.gabarit.type] || 'Relevé' : 'Relevé sur photo'),
+    resume: [NOMS_OUVRAGES[R.ouvrage], m.brut ? `${fmtNb(m.net, 2)} m² nets` : '', m.zone ? 'zone de travaux' : '',
+      R.incomplet?.length ? 'à compléter' : ''].filter(Boolean).join(' · '),
+    releve: { ...etatReleve(), chantier, depuisRdv: false } };
+}
+
+// « 💾 Enregistrer » (demande de Jean-Phi) : le relevé est gardé dans le chantier tel quel, même incomplet, et se
+// reprend quand il veut (fiche du chantier › Relevés à reprendre), sur l'iPhone ou le PC. Le brouillon local reste.
+async function enregistrerReleve(quitter = true) {
+  const chantier = $('#releve-chantier').value;
+  if (!chantier) {
+    toast('Choisis d\'abord le chantier (en bas) pour l\'y enregistrer.', 'erreur');
+    $('#releve-chantier').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('#releve-chantier').focus();
+    return false;
+  }
+  await sauverBrouillonMaintenant();
+  envoyerPhotoReleve();
+  const { tousPartis } = await mettreEnFile([envoiSauverReleve(chantier)]);
+  const titre = $('#releve-facade').value.trim() || NOMS_GABARITS[R.gabarit.type] || 'Relevé';
+  if (R.depuisRdv && V.actif) {
+    const ligne = `${titre} (enregistré, à reprendre) : ${texteMetre().split('\n')[0] || ''}`;
+    V.releves = [...(V.releves || []).filter((x) => !String(x).startsWith(`${titre} (enregistré`)), ligne];
+    sauverRdv();
+  }
+  toast(tousPartis ? `💾 « ${titre} » enregistré dans ${chantier} · fiche › Relevés à reprendre` : '💾 Gardé sur l\'appareil : il partira dans le chantier dès que le réseau revient.', tousPartis ? 'ok' : '');
+  if (!quitter) return true;
+  if (R.depuisRdv && V.actif) { ouvrirRdv(); return true; }
+  ouvrirOnglet('accueil');
+  majBoutonReleve();
+  return true;
+}
+
+// « ➕ Ajouter un autre mur ou pignon » : on enregistre celui-ci, puis on choisit le suivant (avec photo, forme
+// toute faite — celle qu'on vient de faire est proposée en premier — ou forme à créer). Même chantier, même ouvrage.
+async function autreMur() {
+  const chantier = $('#releve-chantier').value;
+  const enCours = R.elements.length || Object.values(R.gabarit.saisis).some(Boolean);
+  if (enCours && chantier && !(await enregistrerReleve(false))) return;
+  if (enCours && !chantier && !confirm('Ce relevé n\'a pas de chantier : il reste seulement sur l\'appareil et sera remplacé. Continuer ?')) return;
+  const actuelle = formeReleve();
+  const suite = { chantier, depuisRdv: R.depuisRdv, ouvrage: R.ouvrage, params: R.params };
+  const fermer = () => fond.remove();
+  const lancer = async (type) => {
+    fermer();
+    await demarrerReleve({ ...suite, mode: 'saisie', id: nouvelId(), facade: '',
+      gabarit: { type, saisis: {}, ouvertures: [], avecOuvertures: false, points: type === 'libre' ? [{ x: '', h: '' }] : [] } });
+    sauverBrouillonReleve();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => $('#releve-facade').focus(), 300);
+    toast('Nouveau mur : donne-lui un nom (ex. « Pignon est ») puis tape tes mesures.', 'ok');
+  };
+  const photo = (galerie) => {
+    fermer();
+    R.suiteAutreMur = suite;
+    $(galerie ? '#releve-galerie-input' : '#releve-input').click();
+    if (!galerie) activerBoussole();
+  };
+  const ordre = [actuelle, ...['pignon', 'mur', 'appentis', 'pan'].filter((t) => t !== actuelle && t !== 'libre')];
+  const dessins = { pignon: '⌂', appentis: '◺', mur: '▭', pan: '▱', libre: '✏️' };
+  const formes = ordre.filter((t) => t !== 'libre').map((t) => el('button', { class: `forme-choix${t === actuelle ? ' conseille' : ''}`, type: 'button', onclick: () => lancer(t) },
+    el('span', { class: 'forme-dessin' }, dessins[t]), el('b', {}, NOMS_GABARITS[t]), t === actuelle ? el('small', {}, 'comme celui-ci') : ''));
+  const fond = el('div', { class: 'modale-fond', onclick: (ev) => { if (ev.target === fond) fermer(); } },
+    el('div', { class: 'modale autre-mur', role: 'dialog', 'aria-label': 'Ajouter un autre mur' },
+      el('h2', {}, '➕ Mur ou pignon suivant'),
+      chantier ? el('p', { class: 'discret petit-texte' }, `Le relevé précédent est enregistré dans ${chantier}.`) : '',
+      el('p', { class: 'etiquette' }, 'Avec une photo'),
+      el('div', { class: 'deux-boutons' },
+        el('button', { class: 'btn secondaire', type: 'button', onclick: () => photo(false) }, '📷 Prendre une photo'),
+        el('button', { class: 'btn secondaire', type: 'button', onclick: () => photo(true) }, '🖼️ De ma galerie')),
+      el('p', { class: 'etiquette' }, 'Sans photo : choisis la forme'),
+      el('div', { class: 'formes-grille' }, ...formes,
+        el('button', { class: `forme-choix${actuelle === 'libre' ? ' conseille' : ''}`, type: 'button', onclick: () => lancer('libre') },
+          el('span', { class: 'forme-dessin' }, dessins.libre), el('b', {}, 'Forme à créer'), el('small', {}, actuelle === 'libre' ? 'comme celui-ci' : 'point par point'))),
+      el('button', { class: 'lien', type: 'button', onclick: fermer }, 'Annuler')));
+  document.body.append(fond);
 }
 
 // La photo du relevé est gardée dans le chantier (« 04 Photos ») dès que le chantier est connu : pas besoin d'y retourner.
@@ -5059,9 +5364,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Relevé de mesures
   // L'appareil photo s'ouvre d'abord ; la boussole est demandée au début du rendez-vous (sa demande d'autorisation
   // empêchait l'appareil photo de s'ouvrir sur l'iPhone).
-  $('#releve-photo').onclick = () => { $('#releve-input').click(); activerBoussole(); };
+  $('#releve-photo').onclick = () => { R.suiteAutreMur = null; $('#releve-input').click(); activerBoussole(); };
   $('#releve-facade').oninput = () => sauverBrouillonReleve();
-  $('#releve-galerie').onclick = () => $('#releve-galerie-input').click();
+  $('#releve-galerie').onclick = () => { R.suiteAutreMur = null; $('#releve-galerie-input').click(); };
   for (const id of ['#releve-input', '#releve-galerie-input']) {
     $(id).onchange = (ev) => { const f = ev.target.files[0]; ev.target.value = ''; photoReleve(f); };
   }
@@ -5072,7 +5377,22 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#ecran-releve').addEventListener('focusout', () => setTimeout(() => {
     if (!document.activeElement?.matches?.('#ecran-releve input, #ecran-releve textarea')) document.body.classList.remove('clavier');
   }, 100));
-  $('#releve-lire').onclick = lireDictee;
+  $('#releve-lire').onclick = comprendreDictee;
+  $('#releve-dictee').oninput = () => sauverBrouillonReleve();
+  $('#releve-enregistrer').onclick = () => enregistrerReleve(true);
+  $('#releve-autre-mur').onclick = autreMur;
+  $('#gabarit-avec-ouvertures').onchange = (ev) => {
+    const g = R.gabarit;
+    if (ev.target.checked) {
+      g.avecOuvertures = true;
+      if (!g.ouvertures.length) g.ouvertures.push({ nom: '', l: '', h: '', x: '', s: '' });
+    } else if (g.ouvertures.some((o) => o.l || o.h || o.s) && !confirm('Retirer les ouvertures de ce mur ?')) {
+      ev.target.checked = true; return;
+    } else { g.ouvertures = []; g.avecOuvertures = false; }
+    dessinerOuvertures();
+    majReleve();
+  };
+  $('#gabarit-ajouter-point').onclick = () => { (R.gabarit.points ||= []).push({ x: '', h: '' }); dessinerPointsLibres(); majReleve(); };
   $('#releve-reanalyser').onclick = () => {
     if (R.elements.some((e) => e.valeur > 0) && !confirm('Refaire l\'analyse ? Les mesures déjà tapées seront effacées.')) return;
     analyserPhotoReleve();
