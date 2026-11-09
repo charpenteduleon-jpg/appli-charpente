@@ -879,6 +879,17 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .propositions-ia > .btn { margin-top: 4px; }
 #releve-quantites li.travail { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 #releve-quantites li.travail .lien { font-size: 20px; padding: 0 4px; color: var(--texte-doux); }
+.travaux-plus .puces { margin: 8px 0; }
+.travaux-plus .puce { font-size: 14px; white-space: nowrap; flex: none; }
+.travaux-liste { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.travaux-liste li { display: grid; grid-template-columns: minmax(0, 1fr) 70px 46px 28px; gap: 6px; align-items: center; padding: 8px 10px; border-radius: 12px; background: var(--fond); font-size: 15px; }
+.travaux-liste input { padding: 8px; font-size: 16px; text-align: right; }
+.travaux-liste .travail-unite { color: var(--texte-doux); font-size: 14px; }
+.travaux-liste .lien { font-size: 22px; padding: 0; color: var(--texte-doux); }
+.travaux-ajout { display: grid; grid-template-columns: minmax(0, 1fr) 70px 86px 48px; gap: 6px; align-items: center; }
+.travaux-ajout input, .travaux-ajout select { padding: 10px 8px; font-size: 16px; }
+.travaux-ajout .btn { margin: 0; padding: 10px 0; font-size: 20px; }
+@media (max-width: 420px) { .travaux-ajout { grid-template-columns: 1fr 70px 80px 44px; } .travaux-ajout #travaux-libelle { grid-column: 1 / -1; } }
 .point-libre .ouverture-entete strong { font-size: 15px; }
 #gabarit-types { flex-wrap: wrap; }
 .modale-fond { position: fixed; inset: 0; z-index: 120; display: grid; place-items: end center; background: rgba(0,0,0,.5); padding: 16px; }

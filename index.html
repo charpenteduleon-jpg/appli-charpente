@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.19.0">
+  <meta name="version-appli" content="1.19.1">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -540,6 +540,18 @@
         </select>
         <div id="releve-params" class="deux-champs"></div>
         <ul id="releve-quantites" class="resultats"></ul>
+      </section>
+      <section class="carte travaux-plus">
+        <h2>🔧 Travaux en plus <small class="discret">ils vont dans le devis</small></h2>
+        <p class="discret petit-texte">Touche un travail courant ou écris le tien. Pour une toiture à mesurer (plaques à changer…), fais « ➕ Ajouter un autre mur » › Pan de toit.</p>
+        <div id="travaux-puces" class="puces defilant"></div>
+        <ul id="travaux-liste" class="travaux-liste"></ul>
+        <div class="travaux-ajout">
+          <input id="travaux-libelle" type="text" autocomplete="off" placeholder="ex. Reprise de l'empoutrement">
+          <input id="travaux-quantite" type="text" inputmode="decimal" autocomplete="off" placeholder="Qté">
+          <select id="travaux-unite"><option>m²</option><option>ml</option><option>u</option><option>ens</option><option>forfait</option></select>
+          <button id="travaux-ajouter" class="btn principal" type="button">＋</button>
+        </div>
       </section>
       <div class="bloc">
         <p class="etiquette">Chantier</p>

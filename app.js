@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.19.0';
+const VERSION = '1.19.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -3264,7 +3264,7 @@ function majSaisie(sauver = true) {
     for (const [a, b] of R.lineaires) lignes.push(el('li', {}, el('span', {}, a), el('b', {}, b)));
   }
   $('#releve-liste').replaceChildren(...(lignes.length ? lignes : [el('li', { class: 'vide' }, 'Les surfaces s\'afficheront dès que les mesures seront complètes.')]));
-  if (R.incomplet.length) { majCarteZone(); $('#releve-quantites').replaceChildren(el('li', { class: 'vide' }, 'Complète les mesures pour avoir les quantités.')); }
+  if (R.incomplet.length) { majCarteZone(); $('#releve-quantites').replaceChildren(el('li', { class: 'vide' }, 'Complète les mesures pour avoir les quantités.')); dessinerTravaux(null); }
   else dessinerQuantites(m, 'Pas de quantité pour l\'instant.');
   $('#releve-envoyer').disabled = !!R.incomplet.length;
   if (sauver) sauverBrouillonReleve();
@@ -3658,11 +3658,45 @@ function remplirCarteZone() {
 function dessinerQuantites(m, vide) {
   majCarteZone();
   const q = quantitesReleve(m);
-  const tr = travauxReleve().map(([l, v], i) => el('li', { class: 'travail' }, el('span', {}, `🔧 ${l}`),
-    el('b', {}, v || ''), el('button', { class: 'lien', 'aria-label': `Retirer ${l}`, onclick: () => { R.travaux.splice(i, 1); majReleve(); } }, '×')));
   $('#releve-quantites').replaceChildren(...(q.length
     ? q.map(([l, v]) => el('li', {}, el('span', {}, l), el('b', {}, v)))
-    : [el('li', { class: 'vide' }, R.ouvrage === 'aucun' ? 'Les surfaces sont dans la liste au-dessus.' : vide)]), ...tr);
+    : [el('li', { class: 'vide' }, R.ouvrage === 'aucun' ? 'Les surfaces sont dans la liste au-dessus.' : vide)]));
+  dessinerTravaux(m);
+}
+
+// ---------- Travaux en plus (1.19.1) : ajoutés à la main ou par la dictée, repris sur la feuille et dans le devis ----------
+// Quantité proposée d'après le métré quand c'est évident (surface nette pour une dépose, rives…).
+const TRAVAUX_COURANTS = [
+  ['Dépose et évacuation du bardage existant', 'm²', (m) => m.net],
+  ['Reprise de l\'empoutrement', 'ml', () => 0],
+  ['Remplacement de plaques fibro-ciment (Everite)', 'u', () => 0],
+  ['Désamiantage (plaques fibro-ciment)', 'm²', () => 0],
+  ['Fourniture et pose de gouttières', 'ml', () => 0],
+  ['Descentes d\'eaux pluviales', 'u', () => 0],
+  ['Habillage des rives', 'ml', () => { const r = R.lineaires.find(([a]) => /rive/i.test(a)); return r ? parseFloat(String(r[1]).replace(/\s/g, '').replace(',', '.')) || 0 : 0; }],
+  ['Bavette / habillage de l\'ouverture', 'ml', () => 0],
+  ['Nacelle / échafaudage', 'forfait', () => 1],
+  ['Évacuation des déchets', 'forfait', () => 1],
+];
+
+function ajouterTravail(libelle, quantite, unite) {
+  libelle = String(libelle || '').trim();
+  if (!libelle) return;
+  R.travaux = [...(R.travaux || []).filter((x) => x.libelle !== libelle), { libelle, quantite: Number(quantite) || 0, unite: unite || '' }];
+  majReleve();
+  toast(`🔧 Ajouté : ${libelle}`, 'ok');
+}
+
+function dessinerTravaux(m) {
+  const liste = R.travaux || [];
+  $('#travaux-puces').replaceChildren(...TRAVAUX_COURANTS.filter(([l]) => !liste.some((t) => t.libelle === l)).map(([l, u, q]) =>
+    el('button', { class: 'puce', type: 'button', onclick: () => { const v = q(m || {}); ajouterTravail(l, v > 0 ? Math.round(v * 100) / 100 : 0, u); } }, `＋ ${l}`)));
+  $('#travaux-liste').replaceChildren(...liste.map((t, i) => {
+    const qte = el('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', placeholder: '?', value: t.quantite > 0 ? String(t.quantite).replace('.', ',') : '' });
+    qte.onchange = () => { t.quantite = lireMesure(qte.value) || 0; majReleve(); };
+    return el('li', {}, el('span', { class: 'travail-nom' }, t.libelle), qte, el('span', { class: 'travail-unite' }, t.unite || ''),
+      el('button', { class: 'lien', type: 'button', 'aria-label': `Retirer ${t.libelle}`, onclick: () => { R.travaux.splice(i, 1); majReleve(); } }, '×'));
+  }));
 }
 
 function dessinerParamsReleve() {
@@ -5392,6 +5426,13 @@ document.addEventListener('DOMContentLoaded', () => {
     dessinerOuvertures();
     majReleve();
   };
+  $('#travaux-ajouter').onclick = () => {
+    const l = $('#travaux-libelle');
+    if (!l.value.trim()) { l.focus(); toast('Écris le travail à ajouter.', 'erreur'); return; }
+    ajouterTravail(l.value, lireMesure($('#travaux-quantite').value) || 0, $('#travaux-unite').value);
+    l.value = ''; $('#travaux-quantite').value = '';
+  };
+  $('#travaux-libelle').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#travaux-ajouter').click(); } };
   $('#gabarit-ajouter-point').onclick = () => { (R.gabarit.points ||= []).push({ x: '', h: '' }); dessinerPointsLibres(); majReleve(); };
   $('#releve-reanalyser').onclick = () => {
     if (R.elements.some((e) => e.valeur > 0) && !confirm('Refaire l\'analyse ? Les mesures déjà tapées seront effacées.')) return;
