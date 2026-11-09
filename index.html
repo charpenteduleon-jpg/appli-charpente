@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.17.5">
+  <meta name="version-appli" content="1.17.6">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -331,7 +331,8 @@
         <button data-type="existant">Chantier existant</button>
       </div>
       <div id="rdv-existant" class="cache"><select id="rdv-chantier-select"></select>
-        <button id="rdv-voir-fiche" class="lien cache" type="button">📂 Photos, notes et relevés déjà dans ce chantier ›</button></div>
+        <div id="rdv-deja" class="rdv-deja cache"></div>
+        <button id="rdv-voir-fiche" class="lien cache" type="button">📂 Ouvrir la fiche complète du chantier ›</button></div>
       <div id="rdv-nouveau" class="champ"><label for="rdv-nom">Nom du chantier</label>
         <input id="rdv-nom" type="text" autocomplete="off" placeholder="ex. Dupont Plouescat"></div>
       <div class="deux-champs">

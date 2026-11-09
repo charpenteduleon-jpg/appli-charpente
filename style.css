@@ -345,6 +345,16 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 .propositions button:hover, .propositions button:focus { background: var(--fond); }
 .propositions small { color: var(--texte-doux); font-size: 13px; }
 #rdv-voir-fiche { display: block; text-align: left; margin-top: 8px; font-weight: 600; }
+.rdv-deja { margin-top: 12px; padding: 12px; border-radius: 14px; background: var(--fond); }
+.rdv-deja h3 { margin: 0 0 10px; font-size: 16px; }
+.rdv-deja .ajout-galerie { width: 100%; margin: 0 0 10px; padding: 12px; border: none; border-radius: 12px; background: var(--bleu-vif); color: #fff; font-size: 16px; font-weight: 700; }
+.rdv-deja .deja-liste { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.rdv-deja .fichier { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: none; border-radius: 10px; background: var(--carte);
+  color: var(--texte); text-decoration: none; font-size: 15px; text-align: left; width: 100%; box-sizing: border-box; overflow: hidden; }
+.rdv-deja .fichier-texte { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rdv-deja .fichier-texte span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rdv-deja .fichier small { color: var(--texte-doux); font-size: 12px; }
+@media (min-width: 1100px) { .rdv-deja .vignettes { grid-template-columns: repeat(6, 1fr); } }
 .resultats { list-style: none; margin: 8px 0 0; padding: 0; }
 .resultats li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bord); font-size: 15px; }
 .resultats li b { font-size: 17px; font-variant-numeric: tabular-nums; }

@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.5';
+const VERSION = '1.17.6';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1613,7 +1613,7 @@ function dessinerFiche(f) {
 }
 
 // Rouvre un relevé rangé (données gardées par le serveur) pour le retravailler ; « Ranger » le réenregistre au même endroit.
-async function ouvrirReleveSauve(chantier, id, bouton) {
+async function ouvrirReleveSauve(chantier, id, bouton, depuisRdv = false) {
   const enCours = R.actif && (R.elements.length || Object.values(R.gabarit.saisis || {}).some(Boolean));
   if (enCours && R.id !== id && !confirm('Un autre relevé est en cours. L\'ouvrir quand même ? Celui en cours sera remplacé.')) return;
   const texte = bouton?.querySelector('.ouvrir');
@@ -1622,7 +1622,7 @@ async function ouvrirReleveSauve(chantier, id, bouton) {
     const r = await appelServeur({ action: 'lireReleve', chantier, id }, 60000);
     remplirSelectChantiers($('#releve-chantier'), chantier, '— Choisir le chantier —');
     afficher('releve');
-    await demarrerReleve({ ...r.releve, id, chantier, depuisRdv: false, photoEnvoyee: true });
+    await demarrerReleve({ ...r.releve, id, chantier, depuisRdv: (depuisRdv || ficheDepuisRdv) && !!V.actif, photoEnvoyee: true });
     toast('Relevé rouvert : corrige ce qu\'il faut, puis refais la feuille ✅', 'ok');
   } catch (e) {
     toast(`Relevé impossible à ouvrir : ${e.message}`, 'erreur');
@@ -1631,7 +1631,7 @@ async function ouvrirReleveSauve(chantier, id, bouton) {
 
 // Photo déjà rangée dans le chantier (prise avant, ou importée) : on fait le relevé dessus comme sur une photo neuve.
 // Claude propose les cotes à prendre, Jean-Phi les tape, règle la zone de travaux, puis « Ranger » garde le relevé.
-async function mesurerPhotoChantier(chantier, v, bouton) {
+async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false) {
   const enCours = R.actif && (R.elements.length || Object.values(R.gabarit?.saisis || {}).some(Boolean));
   if (enCours && !confirm('Un relevé est en cours. Le remplacer par un relevé sur cette photo ?')) return;
   const texte = bouton.textContent;
@@ -1644,7 +1644,7 @@ async function mesurerPhotoChantier(chantier, v, bouton) {
     const data = await traiterImage(new Blob([octets], { type: r.type || 'image/jpeg' }), false);
     afficher('releve');
     await demarrerReleve({ mode: 'photo', photo: data, elements: [], chantier, photoEnvoyee: true, facade: '',
-      depuisRdv: ficheDepuisRdv && !!V.actif });
+      depuisRdv: (depuisRdv || ficheDepuisRdv) && !!V.actif });
     sauverBrouillonReleve();
     analyserPhotoReleve();
     toast('Photo ouverte : donne le nom de la façade ; Claude cherche les mesures à prendre…', 'ok');
@@ -3752,6 +3752,55 @@ function demarrerRdv(ev = null) {
 }
 
 let rdvListeRelue = 0;
+// Fiche complète (avec les vignettes) du chantier choisi dans le rendez-vous, gardée en mémoire seulement.
+let rdvFiche = null, rdvFicheEnCours = '';
+function chargerFicheRdv(nom) {
+  if (rdvFicheEnCours === nom || !navigator.onLine || !reglages.ok()) return;
+  rdvFicheEnCours = nom;
+  const zone = $('#rdv-deja');
+  zone.classList.remove('cache');
+  zone.replaceChildren(el('p', { class: 'discret' }, '⏳ Je regarde ce que le chantier contient déjà…'));
+  appelServeur({ action: 'fiche', chantier: nom }, 60000).then((r) => {
+    rdvFiche = r.fiche;
+    const { rubriques, ...reste } = r.fiche;
+    ecrireJson(`fiche:${nom}`, { ...reste, rubriques: rubriques.map(({ vignettes, ...x }) => x) });
+  }).catch((e) => {
+    if (V.chantier === nom) zone.replaceChildren(el('p', { class: 'discret' }, `Contenu du chantier indisponible : ${e.message}`));
+  }).finally(() => {
+    rdvFicheEnCours = '';
+    if (ecranCourant === 'rdv' && V.chantier === nom) { dessinerDejaRdv(); majRdv(); }
+  });
+}
+
+function dessinerDejaRdv() {
+  const zone = $('#rdv-deja');
+  const f = V.type === 'existant' && rdvFiche?.nom === V.chantier ? rdvFiche : null;
+  if (!f) { if (!rdvFicheEnCours) zone.classList.add('cache'); return; }
+  const rub = (t) => f.rubriques.find((r) => r.titre === t) || { total: 0, fichiers: [] };
+  const photos = rub('Photos');
+  const notes = rub('Devis & contrat').fichiers.filter((x) => /^Notes-RDV|^\d{4}-\d{2}-\d{2}.*\.(jpe?g|png|pdf)$/i.test(x.nom) || x.type?.startsWith('image/'));
+  const blocs = [el('h3', {}, '📂 Déjà dans ce chantier'),
+    el('button', { class: 'bouton secondaire ajout-galerie', type: 'button', onclick: () => $('#rdv-galerie').click() }, '🖼️ Ajouter des photos de ma galerie')];
+  if (photos.vignettes?.length) {
+    blocs.push(el('div', { class: 'vignettes' }, ...photos.vignettes.map((v) => el('div', { class: 'vignette-photo' },
+      el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })),
+      v.id ? el('button', { class: 'mesurer', type: 'button', onclick: (e) => mesurerPhotoChantier(f.nom, v, e.currentTarget, true) }, '📏 Mesurer') : null))));
+    blocs.push(el('p', { class: 'discret aide-mesurer' }, '« 📏 Mesurer » : Claude te dit quelles mesures prendre sur la photo, tu les tapes, tu règles la zone de bardage.'));
+  } else blocs.push(el('p', { class: 'discret' }, photos.total ? `${photos.total} photo(s) dans Drive.` : 'Pas encore de photo.'));
+  if (notes.length) blocs.push(el('div', { class: 'deja-liste' }, el('small', { class: 'etiquette' }, '📝 Notes et documents'), ...notes.slice(0, 6).map(lienFichier)));
+  if (f.releves?.length) {
+    blocs.push(el('div', { class: 'deja-liste' }, el('small', { class: 'etiquette' }, '📏 Relevés à reprendre'), ...f.releves.map((r) => {
+      const b = el('button', { class: 'fichier', type: 'button' }, el('span', {}, '📏'), el('span', { class: 'fichier-texte' }, el('span', {}, r.titre), el('small', {}, r.resume || '')), el('span', { class: 'ouvrir' }, 'Ouvrir ›'));
+      b.onclick = () => ouvrirReleveSauve(f.nom, r.id, b, true);
+      return b;
+    })));
+  }
+  const plans = rub('Plans').fichiers.filter((x) => !/^Releve/i.test(x.nom) || !f.releves?.length);
+  if (plans.length) blocs.push(el('div', { class: 'deja-liste' }, el('small', { class: 'etiquette' }, '📐 Plans et feuilles de relevé'), ...plans.slice(0, 6).map(lienFichier)));
+  zone.replaceChildren(...blocs);
+  zone.classList.remove('cache');
+}
+
 function ouvrirRdv() {
   remplirSelectChantiers($('#rdv-chantier-select'), V.chantier, '— Choisir le chantier —');
   // La liste « Chantier existant » vient de l'appareil : on la recharge (au plus une fois par minute) pour y voir
@@ -3776,13 +3825,10 @@ function ouvrirRdv() {
     ['#rdv-email', 'email'], ['#rdv-dictee', 'dictee'], ['#rdv-budget', 'budget'], ['#rdv-delai', 'delai']]) $(id).value = V[cle] || '';
   const a = separerAdresse(V.adresse);
   $('#rdv-adresse').value = a.rue; $('#rdv-cp').value = a.cp; $('#rdv-ville').value = a.ville;
-  // Ce que le chantier contient déjà (photos, notes papier, relevés) : dans sa fiche.
-  const voir = $('#rdv-voir-fiche');
-  voir.classList.toggle('cache', !(V.type === 'existant' && V.chantier));
-  if (ficheRdv?.rubriques) {
-    const nb = (t) => ficheRdv.rubriques.find((r) => r.titre === t)?.total || 0;
-    voir.textContent = `📂 Déjà dans ce chantier : ${nb('Photos')} photo${nb('Photos') > 1 ? 's' : ''}, ${nb('Devis & contrat')} doc${nb('Devis & contrat') > 1 ? 's' : ''} (notes), ${nb('Plans')} plan${nb('Plans') > 1 ? 's' : ''} › Voir`;
-  } else voir.textContent = '📂 Photos, notes et relevés déjà dans ce chantier ›';
+  // Ce que le chantier contient déjà (photos, notes papier, relevés) : affiché dans le rendez-vous.
+  $('#rdv-voir-fiche').classList.toggle('cache', !(V.type === 'existant' && V.chantier));
+  dessinerDejaRdv();
+  if (V.type === 'existant' && V.chantier && rdvFiche?.nom !== V.chantier) chargerFicheRdv(V.chantier);
   $('#rdv-travaux').replaceChildren(...TRAVAUX.map((t) => {
     const b = el('button', { class: `puce${V.travaux.includes(t) ? ' active' : ''}` }, t);
     b.onclick = () => {
@@ -3800,7 +3846,8 @@ const chantierRdv = () => (V.type === 'existant' ? V.chantier : V.nom.trim());
 
 function majRdv() {
   $('#rdv-heure').textContent = `commencé à ${new Date(V.debut).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
-  $('#rdv-compte-photos').textContent = V.photos ? `${V.photos} rangée${V.photos > 1 ? 's' : ''}` : 'aucune';
+  const dejaPhotos = V.type === 'existant' && rdvFiche?.nom === V.chantier ? (rdvFiche.rubriques.find((r) => r.titre === 'Photos')?.total || 0) : 0;
+  $('#rdv-compte-photos').textContent = [V.photos ? `${V.photos} aujourd'hui` : (dejaPhotos ? '' : 'aucune'), dejaPhotos ? `${dejaPhotos} déjà` : ''].filter(Boolean).join(' · ');
   $('#rdv-compte-notes').textContent = V.notes ? `${V.notes} page${V.notes > 1 ? 's' : ''}` : 'aucune';
   $('#rdv-compte-releves').textContent = V.releves.length ? `${V.releves.length} fait${V.releves.length > 1 ? 's' : ''}` : 'aucun';
   $('#rdv-releves').replaceChildren(...(V.releves.length
@@ -3835,6 +3882,8 @@ async function galerieRdv(fichiers, notesPapier) {
   if (!fichiers.length || !assurerChantierRdv()) return;
   if (fichiers.length > 1) toast(`${fichiers.length} ${notesPapier ? 'pages' : 'photos'} en cours d'envoi…`);
   for (const f of fichiers) await photoRdv(f, notesPapier, true);
+  // Les photos ajoutées apparaissent dans « Déjà dans ce chantier » (avec « 📏 Mesurer »).
+  if (V.type === 'existant' && V.chantier) { rdvFiche = null; chargerFicheRdv(V.chantier); }
 }
 
 async function photoRdv(fichier, notesPapier, depuisGalerie = false) {
@@ -4962,15 +5011,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   $('#rdv-chantier-select').onchange = (e) => {
     V.chantier = e.target.value; V.chantierEnvoye = false; V.client = V.tel = V.adresse = ''; V.lat = V.lon = null; sauverRdv(); ouvrirRdv();
-    // La fiche du chantier (pour savoir ce qu'il contient déjà) : lue en fond si elle n'est pas sur l'appareil.
-    if (V.chantier && !lireJson(`fiche:${V.chantier}`, null)) {
-      const nom = V.chantier;
-      appelServeur({ action: 'fiche', chantier: nom }, 60000).then((r) => {
-        const { rubriques, ...reste } = r.fiche;
-        ecrireJson(`fiche:${nom}`, { ...reste, rubriques: rubriques.map(({ vignettes, ...x }) => x) });
-        if (ecranCourant === 'rdv' && V.chantier === nom) ouvrirRdv();
-      }).catch(() => {});
-    }
   };
   $('#rdv-voir-fiche').onclick = () => {
     if (!V.chantier) return;
