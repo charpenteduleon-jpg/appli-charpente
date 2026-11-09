@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.17.2">
+  <meta name="version-appli" content="1.17.3">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -154,9 +154,7 @@
       <button class="puce active" data-statut="">Tous</button>
       <button class="puce" data-statut="En cours">En cours</button>
       <button class="puce" data-statut="Devis accepté">Devis accepté</button>
-      <button class="puce" data-statut="Devis en attente">Devis en attente</button>
-      <button class="puce" data-statut="Finalisé">Finalisés</button>
-      <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
+      <button class="puce" data-statut="Devis en attente">Devis en attente</button>      <button id="btn-pres-de-moi" class="puce">📍 Près de moi</button>
     </div>
     <ul id="chantiers-liste" class="liste-cartes"></ul>
   </section>

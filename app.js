@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.2';
+const VERSION = '1.17.3';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -568,7 +568,10 @@ function distanceLisible(m) {
   return m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
 }
 
-const listeChantiers = () => lireJson('chantiers', []).filter((c) => c && typeof c === 'object');
+// Les chantiers finalisés (terminés, facturés et payés) et archivés ne sont plus dans l'appli (règle de Jean-Phi du
+// 09/11) : le serveur 1.9 ne les envoie plus, et on les écarte aussi d'une ancienne liste gardée sur l'appareil.
+const STATUTS_HORS_APPLI = ['Finalisé', 'Archivé'];
+const listeChantiers = () => lireJson('chantiers', []).filter((c) => c && typeof c === 'object' && !STATUTS_HORS_APPLI.includes(statutDe(c.statut)));
 
 function chantierLePlusProche(pos) {
   let meilleur = null;
@@ -591,6 +594,9 @@ function rafraichirAccueil() {
   $('#bandeau-installer').classList.toggle('cache', estInstallee() || lire('bandeau-installer-ferme') === '1');
   majBoutonRdv();
   majBoutonReleve();
+  // La liste des chantiers est rechargée avec l'accueil (au démarrage, puis au plus toutes les 5 min) : un chantier
+  // créé ailleurs (rendez-vous, assistant, ProGBat) ou remis en route apparaît sans passer par l'onglet Chantiers.
+  rafraichirChantiers().then(() => { if (ecranCourant === 'chantiers') dessinerChantiers(); }).catch(() => {});
   if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent) || innerWidth >= 1100) {
     // Sur le PC, la même appli s'installe depuis Edge.
     $('#bandeau-installer strong').textContent = "Installe l'appli sur ce PC";
@@ -1329,8 +1335,8 @@ const couleurDe = (texte) => COULEURS[[...texte].reduce((s, c) => s + c.charCode
 const initiales = (nom) => nom.split(/[\s-]+/).filter((m) => /^[A-Za-zÀ-ÿ]/.test(m)).slice(0, 2).map((m) => m[0].toUpperCase()).join('');
 const classeStatut = (s) => ({ 'En cours': 'en-cours', 'Devis accepté': 'a-venir', 'Devis en attente': 'devis-attente', 'Finalisé': 'termine' }[statutDe(s)] || '');
 
-// « Tous » montre tout sauf les chantiers finalisés, qui ont leur propre onglet.
-const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : statutDe(c.statut) !== 'Finalisé');
+// « Tous » montre tous les chantiers de l'appli (les finalisés n'y sont plus).
+const dansFiltre = (c, filtre) => (filtre ? statutDe(c.statut) === filtre : true);
 
 function majCompteursStatut() {
   const liste = listeChantiers();
@@ -1505,10 +1511,11 @@ async function changerStatut(statut) {
   const liste = listeChantiers();
   const c = liste.find((x) => x.nom === nom);
   if (c) c.statut = statut;
-  // Un chantier archivé disparaît de l'appli (le serveur ne l'envoie plus).
-  ecrireJson('chantiers', statut === 'Archivé' ? liste.filter((x) => x.nom !== nom) : liste);
+  // Un chantier archivé ou finalisé disparaît de l'appli (le serveur ne l'envoie plus).
+  const sort = STATUTS_HORS_APPLI.includes(statut);
+  ecrireJson('chantiers', sort ? liste.filter((x) => x.nom !== nom) : liste);
   await mettreEnFile([{ action: 'majChantier', chantier: nom, statut }]);
-  toast(statut === 'Archivé' ? `${nom} archivé` : `Statut : ${statut}`, 'ok');
+  toast(statut === 'Archivé' ? `${nom} archivé` : sort ? `${nom} finalisé : il sort de l'appli (il reste dans ProGBat et Drive)` : `Statut : ${statut}`, 'ok');
 }
 
 async function archiverChantier() {
@@ -3790,6 +3797,8 @@ function ouvrirRecherche() {
   afficher('recherche');
   $('#recherche-texte').value = '';
   dessinerRecherche();
+  // La recherche fouille la liste gardée sur l'appareil : on la recharge pour trouver aussi un chantier tout juste créé.
+  rafraichirChantiers().then(() => { if (ecranCourant === 'recherche') dessinerRecherche(); });
   setTimeout(() => $('#recherche-texte').focus(), 50);
 }
 
