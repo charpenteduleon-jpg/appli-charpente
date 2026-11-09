@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.6';
+const VERSION = '1.18.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -1579,10 +1579,10 @@ function dessinerFiche(f) {
     const bloc = el('section', { class: 'carte rubrique' },
       el('h2', {}, el('a', { href: r.url, target: '_blank', rel: 'noopener' }, `${icones[r.titre] || '📁'} ${r.titre}`), el('span', { class: 'nb' }, String(r.total))));
     if (r.vignettes?.length) {
-      bloc.append(el('div', { class: 'vignettes' }, ...r.vignettes.map((v) => el('div', { class: 'vignette-photo' },
-        el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })),
-        v.id && titre === 'Photos' ? el('button', { class: 'mesurer', type: 'button', onclick: (e) => mesurerPhotoChantier(f.nom, v, e.currentTarget) }, '📏 Mesurer') : null))));
-      if (titre === 'Photos') bloc.append(el('p', { class: 'discret aide-mesurer' }, 'Touche « 📏 Mesurer » sous une photo : Claude te dit quelles mesures prendre, tu les tapes, et tu règles la zone de bardage.'));
+      bloc.append(grillePhotos(f, ficheDepuisRdv && V.actif));
+      bloc.append(el('p', { class: 'discret aide-mesurer' }, 'Touche une photo pour mesurer dessus ou la voir en grand.'));
+      bloc.append(el('button', { class: 'photos-gros petit', type: 'button', onclick: () => ouvrirPhotos(f.nom, () => afficher('fiche')) },
+        el('span', {}, '📷'), 'Prendre ou ajouter des photos'));
       if (r.total > r.vignettes.length) bloc.append(lienDossier(r));
     } else if (r.fichiers.length) {
       const NB_VISIBLES = 6;
@@ -1634,8 +1634,8 @@ async function ouvrirReleveSauve(chantier, id, bouton, depuisRdv = false) {
 async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false) {
   const enCours = R.actif && (R.elements.length || Object.values(R.gabarit?.saisis || {}).some(Boolean));
   if (enCours && !confirm('Un relevé est en cours. Le remplacer par un relevé sur cette photo ?')) return;
-  const texte = bouton.textContent;
-  bouton.disabled = true; bouton.textContent = 'Ouverture…';
+  const texte = bouton.innerHTML;
+  bouton.disabled = true; bouton.textContent = '⏳ J\'ouvre la photo…';
   try {
     const r = await appelServeur({ action: 'photoChantier', chantier, id: v.id }, 90000);
     const binaire = atob(r.data);
@@ -1650,7 +1650,121 @@ async function mesurerPhotoChantier(chantier, v, bouton, depuisRdv = false) {
     toast('Photo ouverte : donne le nom de la façade ; Claude cherche les mesures à prendre…', 'ok');
   } catch (e) {
     toast(`Photo impossible à ouvrir : ${e.message}`, 'erreur');
-  } finally { bouton.disabled = false; bouton.textContent = texte; }
+  } finally { bouton.disabled = false; bouton.innerHTML = texte; }
+}
+
+// ===================== Photos du chantier (1.18) =====================
+// Demande de Jean-Phi (09/11) : « il faut que ce soit très intuitif ». Un seul écran pour les photos d'un chantier :
+// 3 gros boutons (prendre, galerie, notes papier) et les photos ; toucher une photo → Mesurer dessus ou la voir en grand.
+// L'accueil, la fiche et le rendez-vous mènent tous ici ou montrent la même grille.
+const P = { chantier: '', fiche: null, enCours: '', retour: null, locales: [] };
+
+function ouvrirPhotos(chantier = '', retour = null) {
+  P.retour = retour;
+  if (chantier !== P.chantier) { P.fiche = null; P.locales = []; }
+  P.chantier = chantier || P.chantier || '';
+  remplirSelectChantiers($('#photos-chantier'), P.chantier, '— Choisis le chantier —');
+  $('#photos-retour').textContent = retour ? '‹ Retour' : '‹ Accueil';
+  $('#photos-gps').textContent = '';
+  afficher('photos');
+  dessinerPhotos();
+  if (P.chantier) chargerPhotos(P.chantier);
+  else localiserPhotos();
+  rafraichirChantiers().then(() => { if (ecranCourant === 'photos') remplirSelectChantiers($('#photos-chantier'), P.chantier, '— Choisis le chantier —'); }).catch(() => {});
+}
+
+async function localiserPhotos() {
+  const gps = $('#photos-gps');
+  gps.textContent = '📍 Je cherche sur quel chantier tu es…';
+  const pos = await obtenirPosition();
+  if (P.chantier || ecranCourant !== 'photos') { gps.textContent = ''; return; }
+  const proche = pos && chantierLePlusProche(pos);
+  if (proche) {
+    P.chantier = proche.nom;
+    $('#photos-chantier').value = proche.nom;
+    gps.textContent = `📍 Tu es sur ${proche.nom} (${distanceLisible(proche.distance)})`;
+    chargerPhotos(proche.nom);
+  } else gps.textContent = '👆 Choisis le chantier dans la liste.';
+}
+
+function chargerPhotos(nom) {
+  if (P.enCours === nom) return;
+  if (!navigator.onLine || !reglages.ok()) { dessinerPhotos(); return; }
+  P.enCours = nom;
+  dessinerPhotos();
+  appelServeur({ action: 'fiche', chantier: nom }, 60000).then((r) => {
+    if (P.chantier === nom) { P.fiche = r.fiche; P.locales = []; }
+    const { rubriques, ...reste } = r.fiche;
+    ecrireJson(`fiche:${nom}`, { ...reste, rubriques: rubriques.map(({ vignettes, ...x }) => x) });
+    if (rdvFiche?.nom === nom || (V.actif && V.chantier === nom)) rdvFiche = r.fiche;
+  }).catch((e) => toast(`Photos indisponibles : ${e.message}`, 'erreur'))
+    .finally(() => { P.enCours = ''; if (ecranCourant === 'photos' && P.chantier === nom) dessinerPhotos(); });
+}
+
+function dessinerPhotos() {
+  const grille = $('#photos-grille'), plus = $('#photos-plus');
+  for (const b of $$('.photos-actions button')) b.disabled = !P.chantier;
+  if (!P.chantier) { grille.replaceChildren(); plus.replaceChildren(); return; }
+  const f = P.fiche?.nom === P.chantier ? P.fiche : null;
+  const photos = f?.rubriques.find((r) => r.titre === 'Photos');
+  const tuiles = P.locales.map((src) => el('div', { class: 'photo-tuile envoi' }, el('img', { src, alt: 'Photo en cours d\'envoi' }), el('span', { class: 'photo-etat' }, '⏫ envoi…')));
+  if (f) tuiles.push(...grillePhotos(f, P.retour === ouvrirRdv).children);
+  if (!tuiles.length) {
+    grille.replaceChildren(el('p', { class: 'etat-vide' }, P.enCours ? '⏳ Je charge les photos…' : !navigator.onLine ? '📡 Pas de réseau : les photos s\'afficheront dès que possible.' : 'Pas encore de photo : touche « Prendre une photo » ou « Ajouter de ma galerie ».'));
+  } else grille.replaceChildren(...tuiles);
+  plus.replaceChildren();
+  if (photos && photos.total > (photos.vignettes?.length || 0)) {
+    plus.append(el('a', { class: 'lien photos-toutes', href: photos.url, target: '_blank', rel: 'noopener' }, `📁 Voir les ${photos.total} photos dans Drive ›`));
+  }
+}
+
+// Grille de photos (vignettes du serveur) : toucher une photo ouvre le choix « Mesurer » / « Voir en grand ».
+function grillePhotos(f, depuisRdv = false) {
+  const photos = f.rubriques.find((r) => r.titre === 'Photos');
+  return el('div', { class: 'photos-grille' }, ...(photos?.vignettes || []).map((v) => {
+    const t = el('button', { class: 'photo-tuile', type: 'button', 'aria-label': 'Photo : mesurer ou voir en grand' },
+      el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: '', loading: 'lazy' }), el('span', { class: 'photo-etat' }, '📏 Mesurer'));
+    t.onclick = () => choisirPhoto(f.nom, v, depuisRdv);
+    return t;
+  }));
+}
+
+function choisirPhoto(chantier, v, depuisRdv) {
+  const boite = $('#photos-choix');
+  $('#photos-choix-img').src = `data:image/jpeg;base64,${v.data}`;
+  $('#photos-choix-voir').href = v.url;
+  const mesurer = $('#photos-choix-mesurer');
+  mesurer.disabled = !v.id;
+  mesurer.onclick = async () => {
+    await mesurerPhotoChantier(chantier, v, mesurer, depuisRdv || !!(V.actif && P.retour === ouvrirRdv));
+    if (ecranCourant === 'releve') boite.classList.add('cache');
+  };
+  boite.classList.remove('cache');
+}
+
+// Envoi direct dans « 04 Photos » (ou « 02 Devis & contrat » pour les notes papier), comme dans le rendez-vous.
+async function envoyerPhotosChantier(fichiers, notesPapier, depuisGalerie) {
+  const chantier = P.chantier;
+  if (!chantier) { toast('Choisis d\'abord le chantier.', 'erreur'); $('#photos-chantier').focus(); return; }
+  if (!fichiers.length) return;
+  if (fichiers.length > 1) toast(`${fichiers.length} ${notesPapier ? 'pages' : 'photos'} en cours d'envoi…`);
+  let partis = true;
+  for (const f of fichiers) {
+    try {
+      const data = await traiterImage(f, notesPapier);
+      if (!notesPapier) { P.locales.unshift(data); dessinerPhotos(); }
+      const envoi = { action: 'chantier', docId: nouvelId(), date: new Date(depuisGalerie && f.lastModified ? f.lastModified : Date.now()).toISOString(),
+        total: 1, page: 1, type: '', chantier, note: notesPapier ? 'Notes papier' : (depuisGalerie ? 'Photo ajoutée de la galerie' : 'Photo de chantier'),
+        fichier: { mime: 'image/jpeg', data: data.split(',')[1] } };
+      if (notesPapier) Object.assign(envoi, { rubrique: '02 Devis & contrat', prefixe: 'Notes' });
+      if (!depuisGalerie && dernierePosition && Date.now() - dernierePosition.quand < 600000) Object.assign(envoi, { lat: dernierePosition.lat, lon: dernierePosition.lon });
+      if (V.actif && V.chantier === chantier) { if (notesPapier) V.notes++; else V.photos++; sauverRdv(); }
+      const { tousPartis } = await mettreEnFile([envoi]);
+      partis = partis && tousPartis;
+    } catch (e) { toast(e.message, 'erreur'); }
+  }
+  toast(partis ? (notesPapier ? 'Notes rangées dans le chantier ✅' : 'Photos rangées dans le chantier ✅') : 'Gardées : elles partiront dès qu\'il y aura du réseau.', partis ? 'ok' : '');
+  if (partis && !notesPapier) { P.fiche = null; chargerPhotos(chantier); }
 }
 
 // Un document du dossier chantier : nom sans la date du mail (affichée à part), ouvert dans Drive.
@@ -3780,13 +3894,12 @@ function dessinerDejaRdv() {
   const photos = rub('Photos');
   const notes = rub('Devis & contrat').fichiers.filter((x) => /^Notes-RDV|^\d{4}-\d{2}-\d{2}.*\.(jpe?g|png|pdf)$/i.test(x.nom) || x.type?.startsWith('image/'));
   const blocs = [el('h3', {}, '📂 Déjà dans ce chantier'),
-    el('button', { class: 'bouton secondaire ajout-galerie', type: 'button', onclick: () => $('#rdv-galerie').click() }, '🖼️ Ajouter des photos de ma galerie')];
+    el('button', { class: 'photos-gros principal', type: 'button', onclick: () => ouvrirPhotos(f.nom, ouvrirRdv) },
+      el('span', {}, '📷'), `Photos du chantier (${photos.total}) : prendre, galerie, mesurer`)];
   if (photos.vignettes?.length) {
-    blocs.push(el('div', { class: 'vignettes' }, ...photos.vignettes.map((v) => el('div', { class: 'vignette-photo' },
-      el('a', { href: v.url, target: '_blank', rel: 'noopener' }, el('img', { src: `data:image/jpeg;base64,${v.data}`, alt: 'Photo du chantier', loading: 'lazy' })),
-      v.id ? el('button', { class: 'mesurer', type: 'button', onclick: (e) => mesurerPhotoChantier(f.nom, v, e.currentTarget, true) }, '📏 Mesurer') : null))));
-    blocs.push(el('p', { class: 'discret aide-mesurer' }, '« 📏 Mesurer » : Claude te dit quelles mesures prendre sur la photo, tu les tapes, tu règles la zone de bardage.'));
-  } else blocs.push(el('p', { class: 'discret' }, photos.total ? `${photos.total} photo(s) dans Drive.` : 'Pas encore de photo.'));
+    blocs.push(grillePhotos(f, true));
+    blocs.push(el('p', { class: 'discret aide-mesurer' }, 'Touche une photo pour mesurer dessus ou la voir en grand.'));
+  }
   if (notes.length) blocs.push(el('div', { class: 'deja-liste' }, el('small', { class: 'etiquette' }, '📝 Notes et documents'), ...notes.slice(0, 6).map(lienFichier)));
   if (f.releves?.length) {
     blocs.push(el('div', { class: 'deja-liste' }, el('small', { class: 'etiquette' }, '📏 Relevés à reprendre'), ...f.releves.map((r) => {
@@ -4881,6 +4994,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.onclick = () => {
       const cible = b.dataset.ouvre;
       if (cible === 'chantier') nouveauDocument('chantier');
+      else if (cible === 'photos') ouvrirPhotos();
       else if (cible === 'note') ouvrirNote();
       else if (cible === 'point') ouvrirPoint();
       else if (cible === 'reglages') ouvrirReglages();
@@ -4894,6 +5008,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
   $('#btn-deposer').onclick = () => nouveauDocument('depot');
+  // Photos du chantier
+  $('#btn-photos').onclick = () => ouvrirPhotos();
+  $('#photos-retour').onclick = () => { $('#photos-choix').classList.add('cache'); if (P.retour) P.retour(); else ouvrirOnglet('accueil'); };
+  $('#photos-chantier').onchange = (e) => { P.chantier = e.target.value; P.fiche = null; P.locales = []; $('#photos-gps').textContent = ''; dessinerPhotos(); if (P.chantier) chargerPhotos(P.chantier); };
+  $('#photos-prendre').onclick = () => { $('#photos-prendre-input').click(); activerBoussole(); };
+  $('#photos-galerie').onclick = () => $('#photos-galerie-input').click();
+  $('#photos-notes').onclick = () => $('#photos-notes-input').click();
+  $('#photos-prendre-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; envoyerPhotosChantier(f, false, false); };
+  $('#photos-galerie-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; envoyerPhotosChantier(f, false, true); };
+  $('#photos-notes-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; envoyerPhotosChantier(f, true, false); };
+  $('#photos-choix-fermer').onclick = () => $('#photos-choix').classList.add('cache');
+  $('#photos-choix').onclick = (e) => { if (e.target.id === 'photos-choix') e.currentTarget.classList.add('cache'); };
   $('#onglet-deposer').onclick = () => nouveauDocument('depot');
 
   // Document
@@ -5078,8 +5204,8 @@ document.addEventListener('DOMContentLoaded', () => {
     b.classList.add('active');
     dessinerChantiers();
   };
-  $('#fiche-photo').onclick = () => nouveauDocument('chantier', ficheCourante?.nom || '');
-  $('#fiche-galerie').onclick = () => ouvrirImport(ficheCourante?.nom || '');
+  $('#fiche-photo').onclick = () => ouvrirPhotos(ficheCourante?.nom || '', () => afficher('fiche'));
+  $('#fiche-galerie').onclick = () => { ouvrirPhotos(ficheCourante?.nom || '', () => afficher('fiche')); if (ficheCourante?.nom) $('#photos-galerie-input').click(); };
   $('#fiche-note').onclick = () => ouvrirNote(ficheCourante?.nom || '');
   $('#fiche-enregistrer').onclick = enregistrerInfosChantier;
   $('#fiche-archiver').onclick = archiverChantier;

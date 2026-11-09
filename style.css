@@ -345,6 +345,32 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--bleu-vif); 
 .propositions button:hover, .propositions button:focus { background: var(--fond); }
 .propositions small { color: var(--texte-doux); font-size: 13px; }
 #rdv-voir-fiche { display: block; text-align: left; margin-top: 8px; font-weight: 600; }
+/* ===================== Photos du chantier (1.18) ===================== */
+.deposer.photos { background: linear-gradient(135deg, #f3d9b9, #d5ac83); color: #3b2a14; }
+.photos-gps { margin: -2px 0 10px; }
+.photos-actions { display: grid; gap: 10px; margin: 6px 0 12px; }
+.photos-gros { display: flex; align-items: center; gap: 14px; width: 100%; box-sizing: border-box; padding: 16px 18px; border: none; border-radius: 16px;
+  background: var(--carte); color: var(--texte); font-size: 18px; font-weight: 700; text-align: left; text-decoration: none; box-shadow: var(--ombre, 0 1px 3px rgba(0,0,0,.08)); cursor: pointer; }
+.photos-gros span { font-size: 30px; line-height: 1; }
+.photos-gros:disabled { opacity: .45; }
+.photos-gros.principal, #photos-prendre { background: var(--bleu-vif); color: #fff; }
+.photos-gros.petit { padding: 12px 14px; font-size: 16px; margin-top: 10px; }
+.photos-gros.petit span { font-size: 22px; }
+.photos-aide { margin: 4px 0 10px; }
+.photos-grille { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.photo-tuile { position: relative; padding: 0; border: none; border-radius: 12px; overflow: hidden; background: var(--fond); cursor: pointer; }
+.photo-tuile img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.photo-etat { position: absolute; left: 6px; bottom: 6px; padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; font-weight: 600; }
+.photo-tuile.envoi img { opacity: .6; }
+.photos-toutes { display: block; margin: 12px 0; font-weight: 600; }
+.photos-choix { position: fixed; inset: 0; z-index: 100; display: grid; place-items: end center; background: rgba(0,0,0,.5); padding: 16px; }
+.photos-choix.cache { display: none; }
+.photos-choix-boite { width: 100%; max-width: 480px; display: grid; gap: 10px; padding: 14px; border-radius: 20px; background: var(--fond); }
+.photos-choix-boite img { width: 100%; max-height: 40vh; object-fit: contain; border-radius: 12px; background: #000; }
+.photos-choix-boite .lien { text-align: center; padding: 10px; font-size: 17px; }
+@media (min-width: 700px) { .photos-grille { grid-template-columns: repeat(3, 1fr); } .photos-actions { grid-template-columns: repeat(3, 1fr); } .photos-choix { place-items: center; } }
+@media (min-width: 1100px) { .photos-grille { grid-template-columns: repeat(4, 1fr); } }
+
 .rdv-deja { margin-top: 12px; padding: 12px; border-radius: 14px; background: var(--fond); }
 .rdv-deja h3 { margin: 0 0 10px; font-size: 16px; }
 .rdv-deja .ajout-galerie { width: 100%; margin: 0 0 10px; padding: 12px; border: none; border-radius: 12px; background: var(--bleu-vif); color: #fff; font-size: 16px; font-weight: 700; }

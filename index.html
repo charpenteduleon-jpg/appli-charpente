@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.17.6">
+  <meta name="version-appli" content="1.18.0">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -89,6 +89,15 @@
       <span class="chevron">›</span>
     </button>
 
+    <button id="btn-photos" class="deposer photos">
+      <span class="deposer-ico">📷</span>
+      <span class="deposer-texte">
+        <span class="titre">Photos du chantier</span>
+        <span class="sous-titre">Voir, prendre, ajouter de la galerie, mesurer</span>
+      </span>
+      <span class="chevron">›</span>
+    </button>
+
     <button id="btn-deposer" class="deposer">
       <span class="deposer-ico">📄</span>
       <span class="deposer-texte">
@@ -108,7 +117,7 @@
     </button>
 
     <div class="actions-rapides">
-      <button class="action" data-ouvre="chantier"><span class="tuile t-or">🏗️</span>Photo<br>chantier</button>
+      <button class="action" data-ouvre="photos"><span class="tuile t-or">📷</span>Photos<br>chantier</button>
       <button class="action" data-ouvre="note"><span class="tuile t-violet">🎙️</span>Note<br>rapide</button>
       <button class="action" data-ouvre="heures"><span class="tuile t-vert">⏱️</span>Heures<br>du jour</button>
       <button class="action" data-ouvre="point"><span class="tuile t-bleu">📋</span>Point<br>du jour</button>
@@ -158,6 +167,31 @@
     </div>
     <ul id="chantiers-liste" class="liste-cartes"></ul>
   </section>
+
+  <!-- ===================== PHOTOS DU CHANTIER (1.18) ===================== -->
+  <!-- Un seul endroit pour les photos : voir, prendre, ajouter de la galerie, notes papier, mesurer. -->
+  <section id="ecran-photos" class="ecran cache" data-onglet="accueil">
+    <button id="photos-retour" class="retour">‹ Retour</button>
+    <header class="titre-page compact"><h1>📷 Photos du chantier</h1></header>
+    <div class="champ"><select id="photos-chantier" aria-label="Chantier"></select></div>
+    <p id="photos-gps" class="discret photos-gps"></p>
+    <div class="photos-actions">
+      <button id="photos-prendre" class="photos-gros"><span>📷</span>Prendre une photo</button>
+      <button id="photos-galerie" class="photos-gros"><span>🖼️</span>Ajouter de ma galerie</button>
+      <button id="photos-notes" class="photos-gros"><span>📝</span>Notes papier</button>
+    </div>
+    <p class="discret photos-aide">Touche une photo pour <b>mesurer dessus</b> (Claude te dit quoi mesurer) ou la voir en grand.</p>
+    <div id="photos-grille" class="photos-grille"></div>
+    <div id="photos-plus"></div>
+  </section>
+  <div id="photos-choix" class="photos-choix cache" role="dialog" aria-modal="true">
+    <div class="photos-choix-boite">
+      <img id="photos-choix-img" alt="Photo choisie">
+      <button id="photos-choix-mesurer" class="photos-gros principal"><span>📏</span>Mesurer sur cette photo</button>
+      <a id="photos-choix-voir" class="photos-gros" target="_blank" rel="noopener"><span>🔍</span>Voir en grand</a>
+      <button id="photos-choix-fermer" class="lien">Annuler</button>
+    </div>
+  </div>
 
   <!-- ===================== FICHE CHANTIER ===================== -->
   <section id="ecran-fiche" class="ecran cache" data-onglet="chantiers">
@@ -794,6 +828,9 @@
   <input id="releve-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="releve-galerie-input" class="cache" type="file" accept="image/*">
   <input id="gabarit-photo-input" class="cache" type="file" accept="image/*">
+  <input id="photos-prendre-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="photos-notes-input" class="cache" type="file" accept="image/*" capture="environment">
+  <input id="photos-galerie-input" class="cache" type="file" accept="image/*" multiple>
   <input id="rdv-photo-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="rdv-notes-input" class="cache" type="file" accept="image/*" capture="environment">
   <input id="rdv-galerie-input" class="cache" type="file" accept="image/*" multiple>
