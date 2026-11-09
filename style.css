@@ -786,7 +786,12 @@ body:has(#ecran-annoter:not(.cache)) { background: #0b0b0d; }
 .loupe.a-droite { left: auto; right: 10px; }
 .releve-aide { margin: 10px 2px; padding: 10px 12px; border-radius: 12px; background: var(--orange-clair); color: var(--texte); font-size: 14px; line-height: 1.35; }
 .releve-aide.ok { background: var(--vert-clair); }
-.releve-outils { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+.releve-outils { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+.releve-outils button[data-outil="cote"] { background: var(--bleu-clair); }
+.releve-outils button[data-outil="cote"].active { background: var(--bleu); }
+.releve-auto { margin: -4px 2px 10px; font-size: 13px; color: var(--texte-doux); }
+.releve-auto.alerte { margin-top: 0; padding: 10px 12px; border-radius: 12px; background: #ffe1df; color: #b3261e; font-size: 14px; font-weight: 600; }
+.releve-aide .aide-outil { display: block; margin-top: 4px; font-size: 13px; opacity: .85; }
 .releve-outils button {
   display: grid; justify-items: center; gap: 3px; padding: 9px 2px 8px; border: none; border-radius: 14px;
   background: var(--carte); color: var(--texte); box-shadow: var(--ombre); font: inherit; font-size: 12px; font-weight: 600;
@@ -860,7 +865,12 @@ body:has(#ecran-annoter:not(.cache)) { background: #0b0b0d; }
 #releve-dictee { margin-top: 10px; }
 
 /* 1.10.2 : la photo reste en haut pendant la prise des mesures ; bouton du bas caché quand le clavier est ouvert */
-#ecran-releve.saisie-cotes .releve-scene { position: sticky; top: 0; z-index: 30; box-shadow: 0 6px 16px rgba(0,0,0,.25); }
+#ecran-releve.saisie-cotes #releve-haut { position: sticky; top: 0; z-index: 30; background: var(--fond); padding-bottom: 2px; }
+#ecran-releve.saisie-cotes .releve-scene { box-shadow: 0 6px 16px rgba(0,0,0,.25); }
+body.clavier #ecran-releve.saisie-cotes #releve-haut .releve-outils { display: none; }
+#ecran-releve.saisie-cotes #releve-haut .releve-outils { margin: 8px 0 6px; }
+#ecran-releve.saisie-cotes #releve-haut .releve-outils button { padding: 6px 2px 5px; }
+#ecran-releve.saisie-cotes #releve-haut .releve-outils button span { font-size: 18px; }
 #ecran-releve.saisie-cotes #releve-canvas { max-height: 36vh; }
 body.clavier #ecran-releve .pied-fixe { display: none; }
 /* ===================== Relevé 1.19 : dictée intelligente, enregistrer, mur suivant ===================== */
@@ -960,6 +970,11 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
   #releve-travail > #releve-zone-saisie, #releve-travail > #releve-zone-photo { grid-column: 1; grid-row: 1 / span 20; position: sticky; top: 8px; }
   #releve-zone-saisie .carte { margin-top: 12px; }
   #releve-canvas { max-height: 78vh; }
+  /* 1.19.4 : sur l'ordi, la photo reste grande pendant la prise des cotes (le 36vh est pour l'iPhone) ; seule la
+     photo reste fixée en haut, les outils et la liste des mesures défilent en dessous. */
+  #releve-travail > #releve-zone-photo { position: static; }
+  #ecran-releve.saisie-cotes #releve-canvas { max-height: 62vh; }
+  #releve-haut { position: sticky; top: 8px; z-index: 30; background: var(--fond); }
   #ecran-releve .pied-fixe { padding-left: max(16px, calc(50% - 734px)); padding-right: max(16px, calc(50% - 734px)); }
   #ecran-feuille #feuille-pages { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   #ecran-feuille #feuille-pages img { width: 100%; }

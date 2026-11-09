@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.19.3';
+const VERSION = '1.19.4';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -2825,10 +2825,61 @@ async function sauverBrouillonMaintenant() {
     await cleEcrire(CLE_BROUILLON, await chiffrer(JSON.stringify(etatReleve())));
     try { localStorage.removeItem(CLE_BROUILLON); } catch { /* rien */ }
   } catch (e) { console.warn('Brouillon du relevé non gardé', e); }
+  programmerEnvoiReleve();
+}
+
+// Enregistrement automatique dans le chantier (1.19.4, demande de Jean-Phi : les cotes tapées sur l'iPhone doivent
+// se retrouver sur le PC sans penser à « Enregistrer »). Dès qu'un relevé a un chantier et quelque chose de saisi,
+// il part 20 s après le dernier changement, et tout de suite quand on quitte l'appli. Sans réseau, il attend dans
+// la file d'envoi. Rien n'est renvoyé si rien n'a changé.
+const DELAI_ENVOI_AUTO_MS = 6000;
+let envoiAuto = { minuteur: null, dernier: '', relance: null };
+const releveCommence = () => !!(R.elements.some((e) => e.valeur > 0 || !e.lettre) || Object.values(R.gabarit?.saisis || {}).some(Boolean) ||
+  (R.gabarit?.points || []).some((p) => p.x || p.h) || $('#releve-dictee').value.trim() || (R.travaux || []).length);
+function programmerEnvoiReleve(tout = false) {
+  clearTimeout(envoiAuto.minuteur);
+  if (!R.actif || !releveCommence()) return;
+  if (!$('#releve-chantier').value) {
+    // Sans chantier, rien ne peut partir : on le dit clairement, au bon endroit.
+    const el = $('#releve-auto');
+    el.textContent = '⚠️ Choisis le chantier (en bas) : tant qu\'il n\'y en a pas, tes cotes restent seulement sur cet appareil.';
+    el.classList.add('alerte');
+    el.classList.remove('cache');
+    return;
+  }
+  envoiAuto.minuteur = setTimeout(envoyerReleveAuto, tout ? 0 : DELAI_ENVOI_AUTO_MS);
+}
+async function envoyerReleveAuto() {
+  clearTimeout(envoiAuto.minuteur);
+  const chantier = $('#releve-chantier').value;
+  if (!R.actif || !chantier || !releveCommence()) return;
+  const envoi = envoiSauverReleve(chantier);
+  const empreinte = JSON.stringify({ ...envoi, date: 0, releve: { ...envoi.releve, date: 0 } });
+  if (empreinte === envoiAuto.dernier) return;
+  envoiAuto.dernier = empreinte;
+  try {
+    envoyerPhotoReleve();
+    const { tousPartis } = await mettreEnFile([envoi]);
+    if (tousPartis) ficheMem.quand = 0;
+    majEtatEnvoiAuto(tousPartis);
+    // Pas parti (réseau faible, autre envoi en cours) : il reste dans la file, on réessaie dans 15 s.
+    clearTimeout(envoiAuto.relance);
+    if (!tousPartis) envoiAuto.relance = setTimeout(async () => { await viderFile(); majEtatEnvoiAuto((await fileCompter()) === 0); }, 15000);
+  } catch (e) { envoiAuto.dernier = ''; console.warn('Relevé non envoyé', e); }
+}
+function majEtatEnvoiAuto(parti) {
+  const el = $('#releve-auto');
+  if (!el) return;
+  el.classList.remove('alerte');
+  el.textContent = parti
+    ? `☁️ Enregistré tout seul dans le chantier à ${new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`
+    : '☁️ Gardé sur l\'appareil : il partira dans le chantier dès que le réseau revient';
+  el.classList.remove('cache');
 }
 function sauverBrouillonReleve() {
   clearTimeout(R.minuteur);
   R.minuteur = setTimeout(sauverBrouillonMaintenant, 400);
+  programmerEnvoiReleve();
 }
 
 async function reprendreReleve(b = null) {
@@ -3316,17 +3367,41 @@ function dessinerReleveSur(ctx, ep, s) {
     const haut = { x: (coins[2].x + coins[3].x) / 2, y: (coins[2].y + coins[3].y) / 2 };
     etiquette(ctx, `Zone de travaux · ${fmtM(r.xb - r.xa)} m`, haut.x, haut.y + ep * 6, ep * 0.8, '#ffd60a');
   }
-  for (const e of R.elements) {
-    if (e.type !== 'cote') continue;
+  // 1.19.4 (Jean-Phi : « les textes cachent les points ») : les traits d'abord, puis les étiquettes posées À CÔTÉ
+  // du trait (vers l'extérieur de la photo), puis tous les points par-dessus. Pendant qu'on pose ou qu'on déplace
+  // un point, les étiquettes disparaissent pour bien voir.
+  const cotes = R.elements.filter((e) => e.type === 'cote');
+  const enGeste = !!(R.glisse || R.enCours);
+  const etiquettes = [];
+  for (const e of cotes) {
     // Cote proposée : sa lettre (A, B…) devant ; celle que l'on mesure en ce moment est en vert, plus épaisse.
     const visee = R.coteVisee === e && !e.valeur;
+    const couleur = visee ? '#30d158' : e.valeur > 0 ? '#ffcc00' : '#ffffff';
+    dessinerForme(ctx, { type: 'cote', couleur, a: e.a, b: e.b, texte: '' }, visee ? ep * 1.4 : ep);
     const texte = e.lettre ? `${e.lettre}  ${e.valeur > 0 || s ? texteCote(e, s) : '?'}` : texteCote(e, s);
-    dessinerForme(ctx, { type: 'cote', couleur: visee ? '#30d158' : e.valeur > 0 ? '#ffcc00' : '#ffffff', a: e.a, b: e.b, texte }, visee ? ep * 1.4 : ep);
-    pointsReleve(ctx, [e.a, e.b], ep);
+    if (texte && !enGeste) etiquettes.push({ texte, couleur, ...positionEtiquetteCote(e, ctx.canvas, ep) });
   }
+  for (const t of etiquettes) etiquette(ctx, t.texte, t.x, t.y, ep * 0.9, t.couleur);
+  for (const e of cotes) pointsReleve(ctx, [e.a, e.b], ep, false, true);
   const ec = R.enCours;
-  if (ec?.type === 'cote') dessinerForme(ctx, { type: 'cote', couleur: '#ffcc00', a: ec.a, b: ec.b, texte: s ? `≈ ${fmtM(longueurM(ec.a, ec.b, s))}` : '' }, ep);
+  if (ec?.type === 'cote') {
+    dessinerForme(ctx, { type: 'cote', couleur: '#ffcc00', a: ec.a, b: ec.b, texte: '' }, ep);
+    if (s) { const p = positionEtiquetteCote(ec, ctx.canvas, ep); etiquette(ctx, `≈ ${fmtM(longueurM(ec.a, ec.b, s))}`, p.x, p.y, ep * 0.75, '#ffcc00'); }
+    pointsReleve(ctx, [ec.a, ec.b], ep, false, true);
+  }
   if (ec?.pts) tracerSurface(ctx, ec.pts, ec.type, ep, false);
+}
+
+// Étiquette d'une cote : décalée perpendiculairement au trait, du côté du bord de la photo le plus proche
+// (A en bas sous le trait, B à gauche, C à droite), et gardée dans l'image.
+function positionEtiquetteCote(e, c, ep) {
+  const mx = (e.a.x + e.b.x) / 2, my = (e.a.y + e.b.y) / 2;
+  const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, l = Math.hypot(dx, dy) || 1;
+  let nx = -dy / l, ny = dx / l;
+  if (nx * (mx - c.width / 2) + ny * (my - c.height / 2) < 0) { nx = -nx; ny = -ny; }
+  const d = ep * 7;
+  const marge = ep * 5;
+  return { x: Math.min(c.width - marge * 2, Math.max(marge * 2, mx + nx * d)), y: Math.min(c.height - marge, Math.max(marge, my + ny * d)) };
 }
 
 function tracerSurface(ctx, pts, type, ep, ferme) {
@@ -3348,8 +3423,27 @@ function tracerSurface(ctx, pts, type, ep, ferme) {
   pointsReleve(ctx, pts, ep, !ferme);
 }
 
-function pointsReleve(ctx, pts, ep, premierEnEvidence = false) {
+function pointsReleve(ctx, pts, ep, premierEnEvidence = false, viseur = false) {
   ctx.save();
+  // Bouts de cote : un anneau creux avec un petit point au centre, pour voir exactement l'endroit visé.
+  if (viseur) {
+    for (const p of pts) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, ep * 2.2, 0, 2 * Math.PI);
+      ctx.lineWidth = ep * 1.1;
+      ctx.strokeStyle = 'rgba(0,0,0,.75)';
+      ctx.stroke();
+      ctx.lineWidth = ep * 0.55;
+      ctx.strokeStyle = '#fff';
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, ep * 0.45, 0, 2 * Math.PI);
+      ctx.fillStyle = '#ff2d55';
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
   pts.forEach((p, i) => {
     ctx.beginPath();
     ctx.arc(p.x, p.y, ep * (premierEnEvidence && i === 0 && pts.length >= 3 ? 2.6 : 1.5), 0, 2 * Math.PI);
@@ -3367,7 +3461,31 @@ function redessinerReleve() {
   if (!R.img || R.mode !== 'photo') return;
   const ctx = c.getContext('2d');
   ctx.drawImage(R.img, 0, 0);
-  dessinerReleveSur(ctx, epReleve(c), echelleReleve());
+  const ep = epReleve(c);
+  dessinerReleveSur(ctx, ep, echelleReleve());
+  // En mode « Déplacer » : un « + » au milieu de chaque côté de surface ou d'ouverture, à tirer pour ajouter un point.
+  if (R.outil === 'modifier' && !R.enCours && !(R.glisse && !R.glisse.nouveau)) {
+    ctx.save();
+    for (const e of R.elements) {
+      if (e.type === 'cote' || !e.pts?.length) continue;
+      e.pts.forEach((a, i) => {
+        const b = e.pts[(i + 1) % e.pts.length];
+        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, r = ep * 1.9;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, r, 0, 2 * Math.PI);
+        ctx.fillStyle = 'rgba(255,255,255,.92)';
+        ctx.fill();
+        ctx.lineWidth = ep * 0.45;
+        ctx.strokeStyle = e.type === 'ouverture' ? '#ff453a' : '#2f6feb';
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(m.x - r * 0.55, m.y); ctx.lineTo(m.x + r * 0.55, m.y);
+        ctx.moveTo(m.x, m.y - r * 0.55); ctx.lineTo(m.x, m.y + r * 0.55);
+        ctx.stroke();
+      });
+    }
+    ctx.restore();
+  }
   if (R.loupe) montrerLoupe(R.loupe);
 }
 
@@ -3422,6 +3540,30 @@ function sommetProche(p) {
   return meilleur;
 }
 
+// Côté de surface ou d'ouverture sous le doigt (le « + » du milieu compte large) : { e, i (côté i → i+1), x, y }.
+function areteProche(p, milieuSeul = false) {
+  const tol = milieuSeul ? 0 : toleranceReleve(16), tolMilieu = toleranceReleve(26);
+  let meilleur = null;
+  for (const e of R.elements) {
+    if (e.type === 'cote' || !e.pts?.length) continue;
+    e.pts.forEach((a, i) => {
+      const b = e.pts[(i + 1) % e.pts.length];
+      const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const dm = Math.hypot(m.x - p.x, m.y - p.y);
+      const surMilieu = dm < tolMilieu;
+      if (!surMilieu && milieuSeul) return;
+      const d = surMilieu ? 0 : distanceSegment(p, a, b);
+      if ((!surMilieu && d >= tol) || (meilleur && d >= meilleur.d)) return;
+      // Point posé sur le côté (projection), ou au milieu si on a pris le « + ».
+      const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2 || 1;
+      const t = Math.max(0.05, Math.min(0.95, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2));
+      const q = dm < tolMilieu ? m : { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) };
+      meilleur = { e, i, d, x: Math.round(q.x), y: Math.round(q.y) };
+    });
+  }
+  return meilleur;
+}
+
 function distanceSegment(p, a, b) {
   const l2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
   const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2)) : 0;
@@ -3451,12 +3593,27 @@ function releveDebut(ev) {
   if (R.outil === 'modifier') {
     const s = sommetProche(p);
     if (s) { sauverHistorique(); R.glisse = s; R.loupe = p; capturer(); planifierDessinReleve(); return; }
+    // 1.19.4 (« sur une ligne, je puisse rajouter un point ») : appuyer sur le « + » au milieu d'un côté, ou sur
+    // le côté lui-même, ajoute un point à cet endroit et on le fait glisser ; le reste du tracé ne bouge pas.
+    // Ordre : le « + » d'abord, puis un trait de cote (le toucher l'ouvre), puis le côté d'une surface.
+    const sous = elementSous(p);
+    const a = areteProche(p, true) || (sous?.type === 'cote' ? null : areteProche(p));
+    if (a) {
+      sauverHistorique();
+      a.e.pts.splice(a.i + 1, 0, { x: a.x, y: a.y });
+      R.glisse = { e: a.e, cle: a.i + 1, nouveau: true, depart: { x: a.x, y: a.y } };
+      R.loupe = p; capturer(); planifierDessinReleve();
+      return;
+    }
     const e = elementSous(p);
     if (e) ouvrirSelection(e); else fermerSelection();
     return;
   }
   if (R.outil === 'cote') {
-    R.enCours = { type: 'cote', a: p, b: p };
+    // Deux façons (1.19.4) : glisser du départ à l'arrivée, ou toucher/cliquer le départ puis l'arrivée.
+    if (R.enCours?.type === 'cote' && R.enCours.attente) R.enCours = { type: 'cote', a: R.enCours.a, b: p, deuxTemps: true };
+    else R.enCours = { type: 'cote', a: p, b: p };
+    majReleve(false);
   } else {
     if (!R.enCours?.pts || R.enCours.type !== R.outil) R.enCours = { type: R.outil, pts: [] };
     const pts = R.enCours.pts;
@@ -3471,9 +3628,12 @@ function releveDebut(ev) {
 
 function releveMouvement(ev) {
   const actif = R.glisse || R.enCours?.type === 'cote' || R.enCours?.mobile;
+  const p = pointReleve(ev);
+  // Sur l'ordinateur, la souris montre ce qu'on peut faire : une main sur un point à déplacer, une croix pour viser.
+  const c = $('#releve-canvas');
+  c.style.cursor = R.glisse ? 'grabbing' : R.outil === 'modifier' ? (sommetProche(p) ? 'grab' : elementSous(p) ? 'pointer' : 'default') : 'crosshair';
   if (!actif) return;
   ev.preventDefault();
-  const p = pointReleve(ev);
   if (R.glisse) {
     const { e, cle } = R.glisse;
     if (e.type === 'cote') e[cle] = p; else e.pts[cle] = p;
@@ -3485,23 +3645,51 @@ function releveMouvement(ev) {
 
 function releveFin() {
   cacherLoupe();
-  if (R.glisse) { R.glisse = null; redessinerReleve(); majReleve(); return; }
+  if (R.glisse) {
+    // Un point ajouté sur un côté mais pas déplacé ne sert à rien : on le retire (pas de point en trop).
+    const g = R.glisse;
+    if (g.nouveau) {
+      const q = g.e.pts[g.cle];
+      if (Math.hypot(q.x - g.depart.x, q.y - g.depart.y) < toleranceReleve(6)) { g.e.pts.splice(g.cle, 1); R.historique.pop(); toast('Pour ajouter un point, appuie sur le + et fais-le glisser.'); }
+      else toast('Point ajouté ✅ (Défaire pour revenir en arrière)', 'ok');
+    } else if (g.e.type !== 'cote' && g.e.pts.length > 3) {
+      // Un point posé sur son voisin est retiré : c'est la façon d'enlever un point en trop.
+      const n = g.e.pts.length, q = g.e.pts[g.cle];
+      const voisin = [g.e.pts[(g.cle + 1) % n], g.e.pts[(g.cle - 1 + n) % n]].some((v) => Math.hypot(v.x - q.x, v.y - q.y) < toleranceReleve(14));
+      if (voisin) { g.e.pts.splice(g.cle, 1); toast('Point retiré ✅'); }
+    }
+    R.glisse = null; redessinerReleve(); majReleve(); return;
+  }
   const ec = R.enCours;
   if (!ec) return;
   if (ec.type === 'cote') {
+    if (ec.attente) return;
     R.enCours = null;
-    if (Math.hypot(ec.b.x - ec.a.x, ec.b.y - ec.a.y) < toleranceReleve(18)) { redessinerReleve(); return; }
+    if (Math.hypot(ec.b.x - ec.a.x, ec.b.y - ec.a.y) < toleranceReleve(18)) {
+      // Simple touche (ou clic) : c'est le départ ; la prochaine touche donnera l'arrivée.
+      if (!ec.deuxTemps) R.enCours = { type: 'cote', a: ec.a, b: ec.a, attente: true };
+      redessinerReleve();
+      majReleve(false);
+      return;
+    }
     redessinerReleve();
-    const premiere = !echelleReleve();
-    const t = prompt(premiere
-      ? 'Tape la vraie mesure de cette cote, prise sur place (ex. 4,35). Elle sert d\'échelle pour tout le reste.'
-      : 'Mesure prise sur place ? Tape-la (ex. 2,60). Laisse vide pour la calculer sur la photo.', '');
-    if (t === null) { redessinerReleve(); return; }
-    const v = lireMesure(t);
-    if (v === null) { toast('Mesure illisible (ex. 4,35 ou 435 cm).', 'erreur'); redessinerReleve(); return; }
+    // 1.19.4 : chaque cote ajoutée prend la lettre suivante (E, F…) et rejoint la liste « Mesures à prendre »,
+    // où l'on tape (ou vise au laser) sa mesure, comme celles proposées par Claude.
+    const prises = new Set(R.elements.filter((x) => x.type === 'cote' && x.lettre).map((x) => x.lettre));
+    const lettre = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].find((l) => !prises.has(l)) || String(prises.size + 1);
+    const nom = prompt(`Cote ${lettre} : qu'est-ce que tu mesures ? (ex. Hauteur de la porte, Débord)`, '');
+    if (nom === null) { redessinerReleve(); return; }
     sauverHistorique();
-    R.elements.push({ type: 'cote', a: ec.a, b: ec.b, valeur: v || 0, nom: '' });
-    if (premiere && !v) toast('Il faut au moins une cote mesurée sur place pour avoir l\'échelle.', 'erreur');
+    const cote = { type: 'cote', lettre, a: ec.a, b: ec.b, valeur: 0, nom: nom.trim().slice(0, 40) || `Mesure ${lettre}`,
+      consigne: 'Ajoutée par toi sur la photo', ajoutee: true };
+    R.elements.push(cote);
+    dessinerPanneauCotes();
+    redessinerReleve();
+    majReleve();
+    const champ = $$('#releve-cotes-liste input')[R.elements.filter((x) => x.type === 'cote' && x.lettre).indexOf(cote)];
+    if (champ) { champ.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(() => champ.focus(), 350); }
+    toast(`Cote ${lettre} ajoutée : tape sa mesure dans la liste.`, 'ok');
+    return;
   } else {
     ec.mobile = false;
   }
@@ -3521,8 +3709,9 @@ function fermerSurface() {
 }
 
 function defaireReleve() {
-  if (R.enCours?.pts?.length) { R.enCours.pts.pop(); if (!R.enCours.pts.length) R.enCours = null; }
-  else if (R.historique.length) R.elements = JSON.parse(R.historique.pop());
+  if (R.enCours?.type === 'cote') R.enCours = null;
+  else if (R.enCours?.pts?.length) { R.enCours.pts.pop(); if (!R.enCours.pts.length) R.enCours = null; }
+  else if (R.historique.length) { R.elements = JSON.parse(R.historique.pop()); dessinerPanneauCotes(); }
   fermerSelection();
   redessinerReleve();
   majReleve();
@@ -3576,13 +3765,13 @@ function ouvrirSelection(e) {
     sauverHistorique(); e.nom = t.trim().slice(0, 30); apresModif();
   } }, '🏷️ Nommer'));
   boutons.push(el('button', { class: 'btn-petit danger', onclick: () => {
-    sauverHistorique(); R.elements = R.elements.filter((x) => x !== e); apresModif();
+    sauverHistorique(); R.elements = R.elements.filter((x) => x !== e); dessinerPanneauCotes(); apresModif();
   } }, '🗑️'));
   zone.replaceChildren(el('strong', {}, titre), el('div', { class: 'selection-boutons' }, ...boutons),
     el('button', { class: 'fermer', 'aria-label': 'Fermer', onclick: fermerSelection }, '×'));
   zone.classList.remove('cache');
 }
-function apresModif() { const e = selectionReleve; fermerSelection(); redessinerReleve(); majReleve(); if (e && R.elements.includes(e)) ouvrirSelection(e); }
+function apresModif() { const e = selectionReleve; fermerSelection(); dessinerPanneauCotes(); redessinerReleve(); majReleve(); if (e && R.elements.includes(e)) ouvrirSelection(e); }
 function fermerSelection() { selectionReleve = null; $('#releve-selection')?.classList.add('cache'); }
 
 // ---------- Liste des mesures et quantitatif ----------
@@ -3611,6 +3800,23 @@ function majReleve(sauver = true) {
   else if (s.refs === 1) aide.textContent = '✓ Échelle prise sur 1 mesure. Ajoute une 2e mesure dans l\'autre sens (verticale si la 1re est horizontale) : plus précis.';
   else aide.textContent = `✓ Échelle sur ${s.refs} mesures${s.deuxSens ? ' (dans les deux sens)' : ''}${s.refs >= 3 ? ` · écart max ${fmtNb(s.ecart * 100, 1)} %` : ''}. Tire les autres cotes.`;
   aide.classList.toggle('ok', !!s && !enSurface && (R.outil !== 'modifier' || proposees.length > 0));
+  // Mode d'emploi pas à pas de l'outil choisi (1.19.4, « que ce soit didactique »).
+  const pc = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  const toucher = pc ? 'clique' : 'touche';
+  if (!R.analyseEnCours && R.outil === 'cote') {
+    aide.classList.remove('ok');
+    aide.innerHTML = '';
+    aide.append(...(R.enCours?.attente
+      ? [el('strong', {}, `② Maintenant, ${toucher} le point d'arrivée de la mesure.`),
+        `La loupe montre où tu vises. ${pc ? 'Échap' : '« Défaire »'} pour annuler.`]
+      : R.enCours?.type === 'cote'
+        ? [el('strong', {}, '② Glisse jusqu\'au point d\'arrivée, puis lâche.')]
+        : [el('strong', {}, `① ${pc ? 'Clique' : 'Touche'} le point de départ de la mesure (un angle, le bas d'un mur…).`),
+          `Puis ${toucher} le point d'arrivée — ou garde appuyé et glisse de l'un à l'autre. Ensuite, tu dis ce que tu mesures et tu tapes la mesure.`]));
+  } else if (!R.analyseEnCours && R.outil === 'modifier' && R.elements.length) {
+    const formes = R.elements.some((e) => e.type !== 'cote');
+    aide.append(el('span', { class: 'aide-outil' }, ` ☝︎ Déplacer : fais glisser un point mal placé.${formes ? ' Pour ajouter un point sur un côté, tire le « + » du milieu (ou le côté lui-même) : le reste du tracé ne bouge pas. Pour enlever un point, pose-le sur son voisin.' : ''} ${pc ? 'Clique' : 'Touche'} un trait de cote pour le renommer ou le supprimer.`));
+  }
   aide.classList.toggle('analyse', !!R.analyseEnCours);
 
   const n = R.enCours?.pts?.length || 0;
@@ -5530,6 +5736,11 @@ document.addEventListener('DOMContentLoaded', () => {
   toileReleve.onpointerdown = releveDebut;
   toileReleve.onpointermove = releveMouvement;
   toileReleve.onpointerup = releveFin;
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape' || ecranCourant !== 'releve' || !R.enCours) return;
+    R.enCours = null; cacherLoupe(); redessinerReleve(); majReleve(false);
+  });
+  toileReleve.onpointerleave = () => { if (!R.glisse && !(R.enCours?.type === 'cote' && !R.enCours.attente)) cacherLoupe(); };
   toileReleve.onpointercancel = () => { cacherLoupe(); R.glisse = null; if (R.enCours?.type === 'cote') R.enCours = null; redessinerReleve(); };
   for (const b of $$('#releve-outils [data-outil]')) b.onclick = () => choisirOutilReleve(b.dataset.outil);
   $('#releve-defaire').onclick = defaireReleve;
@@ -5729,7 +5940,7 @@ document.addEventListener('DOMContentLoaded', () => {
       securite.cacheDepuis = Date.now();
       if (faceIdActif()) document.body.classList.add('masque');
       sauverCoffre();
-      if (R.actif) sauverBrouillonMaintenant(); // l'iPhone peut fermer l'appli pendant qu'on mesure ailleurs
+      if (R.actif) sauverBrouillonMaintenant().then(() => programmerEnvoiReleve(true)); // l'iPhone peut fermer l'appli pendant qu'on mesure ailleurs
       return;
     }
     document.body.classList.remove('masque');

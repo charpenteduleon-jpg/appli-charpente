@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <!-- Même numéro que VERSION dans app.js : si l'iPhone mélange deux versions, l'appli se recharge. -->
-  <meta name="version-appli" content="1.19.3">
+  <meta name="version-appli" content="1.19.4">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- Seul le code de l'appli peut s'exécuter, et il ne parle qu'au serveur Google et à la météo. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com https://data.geopf.fr https://geo.api.gouv.fr; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -477,25 +477,29 @@
         </div>
       </div>
       <div id="releve-zone-photo">
+      <!-- La photo et ses outils restent ensemble en haut de l'écran pendant qu'on fait défiler les mesures (1.19.4). -->
+      <div id="releve-haut">
       <div class="releve-scene">
         <canvas id="releve-canvas"></canvas>
         <canvas id="releve-loupe" class="loupe cache" width="240" height="240"></canvas>
       </div>
+      <div id="releve-outils" class="releve-outils">
+        <button data-outil="cote"><span>➕</span>Ajouter une cote</button>
+        <button data-outil="surface"><span>▱</span>Surface</button>
+        <button data-outil="ouverture"><span>▢</span>Ouverture</button>
+        <button data-outil="modifier"><span>☝︎</span>Déplacer</button>
+        <button id="releve-defaire"><span>↩︎</span>Défaire</button>
+      </div>
+      </div>
+      <button id="releve-fermer-surface" class="btn principal cache">✓ Fermer la surface</button>
+      <div id="releve-selection" class="releve-selection cache"></div>
       <p id="releve-aide" class="releve-aide"></p>
+      <p id="releve-auto" class="releve-auto cache"></p>
       <section id="releve-cotes" class="carte cotes-a-prendre cache">
         <div class="carte-entete"><h2>Mesures à prendre</h2><button id="releve-reanalyser" class="lien">Refaire l'analyse</button></div>
         <p id="releve-cotes-analyse" class="discret petit-texte"></p>
         <div id="releve-cotes-liste"></div>
       </section>
-      <div id="releve-selection" class="releve-selection cache"></div>
-      <div id="releve-outils" class="releve-outils">
-        <button data-outil="cote"><span>↔</span>Cote</button>
-        <button data-outil="surface"><span>▱</span>Surface</button>
-        <button data-outil="ouverture"><span>▢</span>Ouverture</button>
-        <button data-outil="modifier"><span>☝︎</span>Ajuster</button>
-        <button id="releve-defaire"><span>↩︎</span>Défaire</button>
-      </div>
-      <button id="releve-fermer-surface" class="btn principal cache">✓ Fermer la surface</button>
       </div>
       <!-- Dictée intelligente (1.19) : Claude comprend les mesures ET ce que veut le client, et propose les réglages. -->
       <section class="carte dictee-intelligente">
