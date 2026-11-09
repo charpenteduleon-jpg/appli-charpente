@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.17.3';
+const VERSION = '1.17.4';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -3587,8 +3587,15 @@ function demarrerRdv(ev = null) {
   ouvrirRdv();
 }
 
+let rdvListeRelue = 0;
 function ouvrirRdv() {
   remplirSelectChantiers($('#rdv-chantier-select'), V.chantier, '— Choisir le chantier —');
+  // La liste « Chantier existant » vient de l'appareil : on la recharge (au plus une fois par minute) pour y voir
+  // aussi un chantier tout juste créé (cas de Le Gall, 09/11).
+  if (Date.now() - rdvListeRelue > 60000) {
+    rdvListeRelue = Date.now();
+    rafraichirChantiers().then(() => { if (ecranCourant === 'rdv') remplirSelectChantiers($('#rdv-chantier-select'), V.chantier, '— Choisir le chantier —'); });
+  }
   for (const b of $$('#rdv-type [data-type]')) b.classList.toggle('active', b.dataset.type === V.type);
   $('#rdv-existant').classList.toggle('cache', V.type !== 'existant');
   $('#rdv-nouveau').classList.toggle('cache', V.type !== 'nouveau');
