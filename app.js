@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.21.0';
+const VERSION = '1.22.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -4579,6 +4579,7 @@ function ouvrirRdv() {
     return b;
   }));
   majRdv();
+  dessinerProposeRdv();
   afficher('rdv');
 }
 
@@ -4673,11 +4674,98 @@ function dicterRdv() {
     const debut = zone.value ? `${zone.value}\n` : '';
     r.onresult = (ev) => { zone.value = debut + [...ev.results].map((x) => x[0].transcript).join(' '); V.dictee = zone.value; };
     r.onerror = () => zone.focus();
-    r.onend = () => { dicteeRdv = null; bouton.textContent = '🎤 Dicter'; V.dictee = zone.value; sauverRdv(); };
+    r.onend = () => {
+      dicteeRdv = null; bouton.textContent = '🎤 Dicter'; V.dictee = zone.value; sauverRdv();
+      if (V.dictee.trim().length > 15) mettreAuPropreRdv();
+    };
     r.start();
     dicteeRdv = r;
     bouton.textContent = '⏹ J\'ai fini';
   } catch { zone.focus(); toast('Touche le micro 🎤 du clavier pour dicter.'); }
+}
+
+// 1.22 : « Ce que veut le client » remis au propre par Claude (serveur 1.15, action mettreAuPropre), point par point,
+// avec ses questions (réponses toutes prêtes). Demande de Jean-Phi (09/11) : « un texte logique, sans fautes, qui
+// comprend tout ce que je lui dis… point par point… et s'il faut, il peut aussi me poser des questions ».
+// Rien ne remplace sa note sans son accord : « ✓ Garder ces points » (sa note d'origine reste dans V.dicteeBrute).
+let propreEnCours = false;
+async function mettreAuPropreRdv() {
+  const texte = $('#rdv-dictee').value.trim();
+  if (!texte) { toast('Dicte ou tape d\'abord ce que veut le client.', 'erreur'); $('#rdv-dictee').focus(); return; }
+  if (propreEnCours) return;
+  if (!navigator.onLine || !reglages.ok()) { toast('Pas de réseau : je le mettrai au propre plus tard.', 'erreur'); return; }
+  const reponses = V.propre?.texteSource === texte ? Object.entries(V.propre.reponses || {}).map(([question, reponse]) => ({ question, reponse })) : [];
+  propreEnCours = true;
+  dessinerProposeRdv();
+  try {
+    const r = await appelServeur({ action: 'mettreAuPropre', texte, reponses, familles: TRAVAUX, contexte: texteRdv().slice(0, 3000) }, 120000);
+    const p = r.propre || {};
+    V.propre = { texteSource: texte, points: p.points || [], corrections: p.corrections || [], travaux: (p.travaux || []).filter((t) => TRAVAUX.includes(t)),
+      questions: p.questions || [], reponses: reponses.length ? Object.fromEntries(reponses.map((x) => [x.question, x.reponse])) : {} };
+    sauverRdv();
+  } catch (e) {
+    toast(/Action inconnue/.test(e.message) ? 'Le serveur n\'est pas encore à jour (version 1.15 à déployer).' : `Claude n'a pas pu répondre : ${e.message}`, 'erreur');
+  } finally {
+    propreEnCours = false;
+    dessinerProposeRdv();
+  }
+}
+
+function dessinerProposeRdv() {
+  const zone = $('#rdv-propre');
+  if (propreEnCours) {
+    zone.hidden = false;
+    zone.replaceChildren(el('p', { class: 'attente' }, '🧠 Je relis et je mets au propre, point par point… (10 à 30 secondes)'));
+    return;
+  }
+  const p = V.propre;
+  if (!p || !p.points?.length) { zone.hidden = true; zone.replaceChildren(); return; }
+  zone.hidden = false;
+  const enAttente = (p.questions || []).filter((q) => !(p.reponses || {})[q.question]);
+  zone.replaceChildren(
+    el('p', { class: 'etiquette' }, '✨ Ce que veut le client, point par point'),
+    el('ol', { class: 'rdv-points' }, ...p.points.map((t) => el('li', {}, t))),
+    p.corrections?.length ? el('ul', { class: 'corrections' }, ...p.corrections.map((c) => el('li', {}, '📝 « ', el('s', {}, c.dit), ' » → « ', el('b', {}, c.compris), ' »'))) : null,
+    enAttente.length ? el('div', { class: 'devis-questions' }, el('p', { class: 'etiquette' }, '❓ Mes questions : touche une réponse'),
+      ...enAttente.map((q) => el('div', { class: 'devis-question' }, el('p', {}, q.question),
+        el('div', { class: 'puces' }, ...(q.choix || []).map((c) => el('button', { type: 'button', class: 'puce', onclick: () => repondreProposeRdv(q, c) }, c)))))) : null,
+    el('div', { class: 'rdv-propre-actions' },
+      el('button', { type: 'button', class: 'btn', onclick: () => garderProposeRdv() }, '✓ Garder ces points'),
+      el('button', { type: 'button', class: 'btn secondaire', onclick: () => { garderProposeRdv(); continuerDevisRdv(); } }, '🧠 Garder et continuer le devis'),
+      el('button', { type: 'button', class: 'lien discret', onclick: () => { V.propre = null; sauverRdv(); dessinerProposeRdv(); } }, 'Garder ma note')));
+}
+
+// Les réponses touchées partent ensemble dès que toutes les questions ont une réponse : Claude les met dans les points.
+function repondreProposeRdv(q, choix) {
+  const p = V.propre;
+  p.reponses = { ...(p.reponses || {}), [q.question]: choix };
+  sauverRdv();
+  const reste = p.questions.filter((x) => !p.reponses[x.question]);
+  if (reste.length) {
+    for (const b of $$('#rdv-propre .devis-question')) {
+      if (b.firstChild.textContent === q.question) for (const x of b.querySelectorAll('.puce')) x.classList.toggle('active', x.textContent === choix);
+    }
+    toast('Noté ✅ Réponds aux autres questions.', 'ok');
+  } else mettreAuPropreRdv();
+}
+
+function garderProposeRdv() {
+  const p = V.propre;
+  if (!p?.points?.length) return;
+  if (!V.dicteeBrute) V.dicteeBrute = V.dictee;
+  V.dictee = p.points.map((t) => `• ${t}`).join('\n');
+  $('#rdv-dictee').value = V.dictee;
+  for (const t of p.travaux || []) if (!V.travaux.includes(t)) V.travaux.push(t);
+  for (const b of $$('#rdv-travaux .puce')) b.classList.toggle('active', V.travaux.includes(b.textContent));
+  V.propre = null;
+  sauverRdv();
+  dessinerProposeRdv();
+  toast('C\'est au propre ✅', 'ok');
+}
+
+function continuerDevisRdv() {
+  const nom = assurerChantierRdv();
+  if (nom) ouvrirDevis(nom, ouvrirRdv, texteRdv(), `Voici ce que veut le client (rendez-vous) :\n${V.dictee}\nPrépare le devis.`);
 }
 
 function texteRdv() {
@@ -4692,8 +4780,9 @@ function texteRdv() {
     `Travaux : ${V.travaux.join(', ') || '—'}`,
     `Budget du client : ${V.budget || '—'} · Délai souhaité : ${V.delai || '—'}`,
     '',
-    'Ce que veut le client (dictée de Jean-Phi, telle quelle) :',
+    V.dicteeBrute ? 'Ce que veut le client (remis au propre point par point, validé par Jean-Phi) :' : 'Ce que veut le client (dictée de Jean-Phi, telle quelle) :',
     V.dictee || '—',
+    V.dicteeBrute ? `\nSa dictée d'origine : ${V.dicteeBrute}` : null,
     '',
     `Photos : ${V.photos} (dans « 04 Photos ») · Notes papier : ${V.notes} page(s) (dans « 02 Devis & contrat », fichiers « Notes-RDV »)`,
   ];
@@ -4754,18 +4843,27 @@ function garderDevis() {
   ecrireJson('devis-en-cours', D.chantier || null);
 }
 
-async function ouvrirDevis(chantier = '', retour = null, contexte = '') {
+// « premier » (1.22) : ce que veut le client, venu du rendez-vous. Sur un chantier sans devis, il part tout seul chez
+// Claude ; s'il y a déjà un devis (ou une V1 ProGBat), il attend dans la case : Jean-Phi choisit (V2 ou Envoyer).
+async function ouvrirDevis(chantier = '', retour = null, contexte = '', premier = '') {
   D.retour = retour;
   chantier = chantier || D.chantier || lireJson('devis-en-cours', '') || '';
   chargerDevisLocal(chantier);
   if (contexte) D.contexte = contexte;
   remplirSelectChantiers($('#devis-chantier'), D.chantier, '— Choisis le chantier —');
   $('#devis-retour').textContent = retour ? '‹ Retour' : '‹ Accueil';
+  if (premier) $('#devis-texte').value = premier;
   afficher('devis');
   dessinerDevis();
   dessinerVersionsDevis();
-  if (D.chantier) reprendreDevisServeur(D.chantier);
   if (!D.messages.length) setTimeout(() => $('#devis-texte').focus(), 300);
+  if (!D.chantier) return;
+  await reprendreDevisServeur(D.chantier);
+  if (!premier || ecranCourant !== 'devis' || $('#devis-texte').value !== premier) return;
+  if (!D.messages.length && !D.lignes.length && !(D.liste || []).length) envoyerDevis();
+  else toast((D.liste || []).some((x) => x.source === 'ProGBat') && !D.messages.length
+    ? 'Ce chantier a déjà un devis : fais la V2, ou touche « Envoyer » pour partir de ce texte.'
+    : 'Ce que veut le client est prêt en bas : touche « Envoyer » pour l\'ajouter au devis.', 'ok');
 }
 
 function chargerDevisLocal(nom) {
@@ -5129,8 +5227,8 @@ function brancherDevis() {
   $('#btn-devis').onclick = () => ouvrirDevis();
   $('#fiche-devis-ia').onclick = () => ouvrirDevis(ficheCourante?.nom || '', () => afficher('fiche'));
   $('#rdv-devis-ia').onclick = () => {
-    const nom = assurerChantierRdv();
-    if (nom) ouvrirDevis(nom, ouvrirRdv, texteRdv());
+    if (!V.dictee.trim()) { const nom = assurerChantierRdv(); if (nom) ouvrirDevis(nom, ouvrirRdv, texteRdv()); return; }
+    continuerDevisRdv();
   };
   $('#devis-retour').onclick = () => { if (reconnaissanceDevis) reconnaissanceDevis.stop(); if (D.retour) D.retour(); else ouvrirOnglet('accueil'); };
   $('#devis-chantier').onchange = (e) => {
@@ -6255,6 +6353,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#rdv-notes-galerie-input').onchange = (ev) => { const f = [...ev.target.files]; ev.target.value = ''; galerieRdv(f, true); };
   $('#rdv-mesures').onclick = mesuresRdv;
   $('#rdv-micro').onclick = dicterRdv;
+  $('#rdv-propre-btn').onclick = () => { if (dicteeRdv) dicteeRdv.stop(); else mettreAuPropreRdv(); };
   $('#rdv-terminer').onclick = terminerRdv;
   $('#rdv-abandonner').onclick = abandonnerRdv;
   $('#releve-nouveau').onclick = nouveauReleve;
