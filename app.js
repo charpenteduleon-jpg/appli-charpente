@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.24.0';
+const VERSION = '1.24.1';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -4797,12 +4797,22 @@ async function terminerRdv() {
     !confirm('Rien n\'a été dicté, coché ou mesuré. Envoyer quand même ?')) return;
   const resume = `${nom} : ${V.travaux.join(', ') || 'travaux à préciser'}`;
   const majInfos = { action: 'majChantier', chantier: nom, creer: true, client: V.client, telephone: V.tel, adresse: V.adresse, lat: V.lat, lon: V.lon };
+  const texte = texteRdv();
+  const demande = V.dictee.trim()
+    ? `Voici ce que veut le client (rendez-vous) :\n${V.dictee}\nPrépare le devis.`
+    : 'Prépare le devis d\'après le rendez-vous (travaux et relevés ci-dessus).';
   const { tousPartis } = await mettreEnFile([majInfos,
-    { action: 'visite', chantier: nom, texte: texteRdv(), resume, date: new Date(V.debut).toISOString() }]);
+    { action: 'visite', chantier: nom, texte, resume, date: new Date(V.debut).toISOString() }]);
   V.actif = false;
   ecrireJson('rdv-en-cours', null);
-  ouvrirOnglet('accueil');
-  toast(tousPartis ? 'Rendez-vous envoyé ✅ Je prépare le brouillon du devis.' : 'Gardé : il partira dès qu\'il y aura du réseau.', tousPartis ? 'ok' : '');
+  if (!tousPartis || !navigator.onLine) {
+    ouvrirOnglet('accueil');
+    toast('Gardé : il partira dès qu\'il y aura du réseau. Le devis se fera à ce moment-là.', '');
+    return;
+  }
+  // 1.24.1 : plus d'attente jusqu'au soir, le devis se fait tout de suite, sous les yeux de Jean-Phi.
+  toast('Rendez-vous envoyé ✅ Je fais le devis maintenant…', 'ok');
+  ouvrirDevis(nom, null, texte, demande);
 }
 
 async function partagerFeuille() {
@@ -4860,10 +4870,15 @@ async function ouvrirDevis(chantier = '', retour = null, contexte = '', premier 
   if (!D.chantier) return;
   await reprendreDevisServeur(D.chantier);
   if (!premier || ecranCourant !== 'devis' || $('#devis-texte').value !== premier) return;
-  if (!D.messages.length && !D.lignes.length && !(D.liste || []).length) envoyerDevis();
-  else toast((D.liste || []).some((x) => x.source === 'ProGBat') && !D.messages.length
-    ? 'Ce chantier a déjà un devis : fais la V2, ou touche « Envoyer » pour partir de ce texte.'
-    : 'Ce que veut le client est prêt en bas : touche « Envoyer » pour l\'ajouter au devis.', 'ok');
+  // 1.24.1 (« je dois pas attendre le soir ») : tout part tout de suite chez Claude. S'il n'y a qu'un devis ProGBat,
+  // la V2 est faite d'abord (lignes reprises telles quelles), puis ce que veut le client y est ajouté.
+  const v1 = !D.messages.length && !D.lignes.length && (D.liste || []).find((x) => x.source === 'ProGBat');
+  if (v1) {
+    await nouvelleVersionDevis(v1);
+    if (ecranCourant !== 'devis' || !D.lignes.length) return; // reprise ratée : le texte reste dans la case
+  }
+  $('#devis-texte').value = '';
+  envoyerDevis(premier);
 }
 
 function chargerDevisLocal(nom) {
