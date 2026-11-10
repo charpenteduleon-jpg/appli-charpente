@@ -1111,7 +1111,8 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .devis-ligne.option { border: 2px dashed var(--or); }
 .devis-ligne.estime { box-shadow: inset 3px 0 0 var(--orange); }
 .devis-ligne textarea { width: 100%; box-sizing: border-box; resize: vertical; font-size: 15px; padding: 8px; }
-.devis-chiffres { display: grid; grid-template-columns: 58px 46px 10px 74px minmax(0, 1fr); gap: 4px; align-items: center; margin-top: 6px; }
+.devis-chiffres { display: grid; grid-template-columns: 56px 70px 10px 72px minmax(0, 1fr); gap: 4px; align-items: center; margin-top: 6px; }
+.devis-chiffres select.devis-unite { padding: 8px 2px; font-size: 16px; min-width: 0; width: 100%; border-radius: 10px; border: 1px solid var(--bord); background: var(--carte); color: inherit; }
 .devis-total { white-space: nowrap; font-size: 15px; }
 .devis-chiffres input { padding: 8px 6px; font-size: 16px; text-align: right; min-width: 0; }
 .devis-chiffres .devis-unite { text-align: center; }
@@ -1128,6 +1129,11 @@ body.clavier #ecran-releve .pied-fixe { display: none; }
 .devis-totaux { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--bord); display: grid; gap: 4px; }
 .devis-totaux div { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; font-variant-numeric: tabular-nums; }
 .devis-totaux div.fort { font-size: 18px; }
+.devis-totaux div.marge { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, var(--vert) 12%, transparent); color: var(--vert); font-size: 14px; }
+.devis-totaux div.marge.perte { background: color-mix(in srgb, var(--rouge) 12%, transparent); color: var(--rouge); }
+.devis-marge { display: block; margin-top: 2px; font-size: 12px; color: var(--vert); font-variant-numeric: tabular-nums; }
+.devis-marge.faible { color: var(--orange); }
+.devis-marge.perte { color: var(--rouge); font-weight: 700; }
 .devis-totaux div:first-child b { font-size: 17px; }
 #rdv-devis-ia { margin: 14px 0 4px; }
 @media (min-width: 1100px) {

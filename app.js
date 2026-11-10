@@ -1,7 +1,7 @@
 // Appli Charpente du Léon – logique de l'application
 'use strict';
 
-const VERSION = '1.22.0';
+const VERSION = '1.24.0';
 const TAILLE_MAX_PX = 2000;        // côté le plus long d'une page après compression
 const QUALITE_JPEG = 0.72;
 const TAILLE_MAX_PDF = 15 * 1024 * 1024;
@@ -4956,7 +4956,7 @@ async function nouvelleVersionDevis(x) {
       id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, chantier: nom, version, ref, base: x.id, source: 'appli',
       objet: d.objet || '', tva: Number(d.tva) || 0, mentions: [...(d.mentions || [])],
       lignes: (d.lignes || []).map((l) => ({ partie: l.partie || 'Travaux', designation: l.designation || '', quantite: Number(l.quantite) || 0,
-        unite: l.unite || '', prixHT: Number(l.prixHT) || 0, option: !!l.option, prixEstime: !!l.prixEstime,
+        unite: l.unite || '', prixHT: Number(l.prixHT) || 0, prixAchat: Number(l.prixAchat) || 0, option: !!l.option, prixEstime: !!l.prixEstime,
         source: l.reprise || l.source?.startsWith('Repris') ? l.source : `Repris de ${origine}`, reprise: true })),
       messages: [{ qui: 'claude', texte: `J'ai repris le devis ${origine} : ${(d.lignes || []).length} lignes, ${eurosDevis(nombreDevis(x.totalHT))} HT. C'est la V${version}. Dis-moi ce que le client veut ajouter, changer ou retirer : je garde le reste tel quel. Tu peux aussi modifier les lignes à la main.`, quand: Date.now() }],
     });
@@ -4971,13 +4971,25 @@ async function nouvelleVersionDevis(x) {
 }
 
 function totauxDevis() {
-  let ht = 0, options = 0;
+  let ht = 0, options = 0, achats = 0, venteFournitures = 0;
   for (const l of D.lignes) {
     const t = nombreDevis(l.quantite) * nombreDevis(l.prixHT);
     if (l.option) options += t; else ht += t;
+    if (!l.option && Number(l.prixAchat) > 0) { achats += nombreDevis(l.quantite) * Number(l.prixAchat); venteFournitures += t; }
   }
   const tva = ht * (Number(D.tva) || 0) / 100;
-  return { ht, tva, ttc: ht + tva, options };
+  return { ht, tva, ttc: ht + tva, options, achats, marge: venteFournitures - achats, venteFournitures };
+}
+
+// 1.24 : marge d'une ligne (prix d'achat donné par Claude d'après les tarifs Tanguy et autres fournisseurs).
+function margeLigneEl(l) {
+  const achat = Number(l.prixAchat) || 0;
+  if (!achat) return null;
+  const vente = nombreDevis(l.prixHT);
+  const coef = vente / achat;
+  const perte = vente < achat;
+  return el('small', { class: `devis-marge ${perte ? 'perte' : coef < 1.2 ? 'faible' : ''}`, title: 'Prix d\'achat HT et coefficient de marge' },
+    `achat ${eurosDevis(achat)} · ${perte ? '⚠️ sous le prix d\'achat' : `× ${coef.toFixed(2).replace('.', ',')}`}`);
 }
 
 function dessinerDevis() {
@@ -5063,6 +5075,19 @@ function dessinerLignesDevis() {
   dessinerTotauxDevis();
 }
 
+// 1.23 : les unités de ProGBat, au choix dans une liste (l'unité d'une ligne reprise est gardée telle quelle).
+const UNITES_DEVIS = ['U', 'ml', 'm²', 'm³', 'm', 'h', 'jour', 'ft', 'ens', 'lot', 'bte', 'cart', 'kg', 't', 'l', 'rouleau', 'paire', 'pièce', 'sac', 'plaque'];
+function choixUnite(l) {
+  const s = el('select', { class: 'devis-unite', 'aria-label': 'Unité' });
+  const actuelle = String(l.unite || '').trim();
+  const liste = actuelle && !UNITES_DEVIS.includes(actuelle) ? [actuelle, ...UNITES_DEVIS] : UNITES_DEVIS;
+  s.append(...liste.map((u) => el('option', { value: u }, u)));
+  s.value = actuelle || 'U';
+  if (!actuelle) l.unite = 'U';
+  s.onchange = () => { l.unite = s.value; l.modifie = true; apresEditionDevis(); };
+  return s;
+}
+
 function ligneDevisEl(l) {
   const champ = (cle, attrs) => {
     const i = el('input', { type: 'text', inputmode: cle === 'unite' ? 'text' : 'decimal', class: `devis-${cle}`, 'aria-label': attrs, autocomplete: 'off' });
@@ -5079,9 +5104,10 @@ function ligneDevisEl(l) {
   const suppr = el('button', { type: 'button', class: 'lien danger', 'aria-label': 'Retirer la ligne',
     onclick: () => { if (confirm(`Retirer « ${l.designation.slice(0, 60)} » ?`)) { D.lignes.splice(D.lignes.indexOf(l), 1); apresEditionDevis(true); } } }, '✕');
   return el('div', { class: `devis-ligne ${l.option ? 'option' : ''} ${l.prixEstime ? 'estime' : ''}` }, desi,
-    el('div', { class: 'devis-chiffres' }, champ('quantite', 'Quantité'), champ('unite', 'Unité'), el('span', { class: 'fois' }, '×'),
+    el('div', { class: 'devis-chiffres' }, champ('quantite', 'Quantité'), choixUnite(l), el('span', { class: 'fois' }, '×'),
       champ('prixHT', 'Prix unitaire HT'), total),
-    el('div', { class: 'devis-ligne-pied' }, l.prixEstime ? el('small', { class: 'estime' }, '⚠️ prix estimé, à vérifier') : el('small', {}, l.source || ''), opt, suppr));
+    el('div', { class: 'devis-ligne-pied' }, l.prixEstime ? el('small', { class: 'estime' }, '⚠️ prix estimé, à vérifier') : el('small', {}, l.source || ''), opt, suppr),
+    margeLigneEl(l));
 }
 
 function dessinerTotauxDevis() {
@@ -5091,7 +5117,13 @@ function dessinerTotauxDevis() {
   else lignes.push(['TVA', 'à choisir']);
   if (t.options) lignes.push(['Options (non comptées)', eurosDevis(t.options)]);
   if (Number(D.tva)) lignes.push(['Acompte 30 % à la signature', eurosDevis(t.ttc * 0.3)]);
-  $('#devis-totaux').replaceChildren(...lignes.map(([a, b], i) => el('div', { class: i === 2 && Number(D.tva) ? 'fort' : '' }, el('span', {}, a), el('b', {}, b))));
+  const elems = lignes.map(([a, b], i) => el('div', { class: i === 2 && Number(D.tva) ? 'fort' : '' }, el('span', {}, a), el('b', {}, b)));
+  if (t.achats > 0) {
+    const pc = t.venteFournitures ? Math.round(t.marge / t.venteFournitures * 100) : 0;
+    elems.push(el('div', { class: `marge ${t.marge < 0 ? 'perte' : ''}` }, el('span', {}, `💰 Ta marge sur fournitures (achat ${eurosDevis(t.achats)})`),
+      el('b', {}, `${eurosDevis(t.marge)} · ${pc} %`)));
+  }
+  $('#devis-totaux').replaceChildren(...elems);
 }
 
 let minuteurDevis = 0;
@@ -5142,8 +5174,9 @@ async function envoyerDevis(texteForce) {
     const avant = new Map(D.lignes.map((l) => [l.designation, l]));
     D.lignes = (c.lignes || []).map((l) => {
       const a = avant.get(l.designation);
-      return { ...l, quantite: Number(l.quantite) || 0, prixHT: Number(l.prixHT) || 0,
-        ...(a?.reprise ? { reprise: true } : {}), ...(a?.modifie ? { modifie: true } : {}) };
+      const { numero, ...ligne } = l;
+      return { ...ligne, quantite: Number(l.quantite) || 0, prixHT: Number(l.prixHT) || 0,
+        ...(l.reprise || a?.reprise ? { reprise: true } : {}), ...(l.modifie || a?.modifie ? { modifie: true } : {}) };
     });
     D.questions = c.questions || [];
     D.mentions = c.mentions || [];
@@ -5247,7 +5280,7 @@ function brancherDevis() {
   $('#devis-tva').onchange = (e) => { D.tva = Number(e.target.value) || 0; apresEditionDevis(); };
   $('#devis-ajouter').onclick = () => {
     const partie = D.lignes.length ? D.lignes[D.lignes.length - 1].partie : 'Travaux';
-    D.lignes.push({ partie, designation: '', quantite: 1, unite: 'u', prixHT: 0, option: false, prixEstime: false, source: 'ajoutée à la main', modifie: true });
+    D.lignes.push({ partie, designation: '', quantite: 1, unite: 'U', prixHT: 0, option: false, prixEstime: false, source: 'ajoutée à la main', modifie: true });
     apresEditionDevis(true);
     const z = $$('#devis-lignes .devis-designation');
     z[z.length - 1]?.focus();
